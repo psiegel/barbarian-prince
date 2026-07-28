@@ -48,17 +48,32 @@ read them.
 
 ### Voice (optional)
 
-Put an ElevenLabs key in `.env` (git-ignored, loaded automatically). Without one,
-`speak` falls back to the macOS `say` command, so it always does something.
+`./bp speak` has three backends and picks one automatically: a local Kokoro server
+if one is listening, else ElevenLabs if a key is set, else the macOS `say` command.
+It never hard-fails — an unreachable backend falls back to `say` and says why. With
+no configuration at all you get `say`, and the rest of the CLI is unaffected.
+
+Settings live in `.env`, which is git-ignored and loaded automatically. Start from
+the annotated template, which documents every option:
 
 ```sh
-ELEVENLABS_API_KEY=sk_...
-ELEVENLABS_VOICE_ID=JBFqnCBsd6RMkjVDRZzb   # George - warm storyteller
+cp .env.example .env
 ```
 
-The key needs text-to-speech permission, plus voices-read if you want to list voices.
-Free accounts can only use `premade` voices via the API — `professional` and library
-voices return HTTP 402.
+**Local and free** (recommended) — Kokoro-82M via mlx-audio, on Apple Silicon:
+
+```sh
+uv tool install --force "mlx-audio[server]" --with "misaki[en]" --with soundfile \
+  --with "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+mlx_audio.server --port 8000
+```
+
+All three of those `--with` packages are required; the reasons, the voice list, and
+why Kokoro rather than VibeVoice are in **[docs/local-tts.md](docs/local-tts.md)**.
+
+**Hosted** — set `ELEVENLABS_API_KEY` in `.env`. The key needs text-to-speech
+permission, plus voices-read if you want to list voices. Free accounts can only use
+`premade` voices via the API — `professional` and library voices return HTTP 402.
 
 ## Usage
 
@@ -86,6 +101,8 @@ Start a game by asking the AI to read you `e001`.
 ```
 CLAUDE.md            how the AI should run the game
 LICENSE              MIT, covering this tooling only
+.env.example         annotated template for voice settings (copy to .env)
+docs/local-tts.md    running Kokoro locally instead of ElevenLabs
 bp                   CLI entry point
 tools/extract.py     PDFs -> data/   (re-run if the PDFs change)
 tools/tables.py      die-roll table parser used by extract.py

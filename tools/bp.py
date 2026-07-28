@@ -8,7 +8,7 @@
   bp roll 2d6              roll dice
   bp refs r220             what a section links to, and what links to it
   bp list r                list section ids (optionally filtered by prefix)
-  bp speak e001            read a section aloud (ElevenLabs, falls back to `say`)
+  bp speak e001            read a section aloud (local Kokoro, ElevenLabs, or `say`)
 """
 
 import argparse
@@ -18,7 +18,10 @@ import re
 import random
 import subprocess
 import sys
+import http.client
+import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -221,13 +224,100 @@ def to_speech(sec: dict) -> str:
     return text.strip()
 
 
-def speak(sec: dict, voice: str, save: bool) -> int:
-    text = to_speech(sec)
+# Local TTS speaks to an OpenAI-compatible /v1/audio/speech endpoint, which is
+# what mlx-audio and Kokoro-FastAPI both serve. Keeping it HTTP means this file
+# stays dependency-free: the model runs in its own environment, not in ours.
+KOKORO_URL = "http://127.0.0.1:8000/v1/audio/speech"
+KOKORO_MODEL = "mlx-community/Kokoro-82M-bf16"
+KOKORO_VOICE = "bm_george"
+
+
+def local_url() -> str:
+    return os.environ.get("KOKORO_URL", KOKORO_URL)
+
+
+def local_up(timeout: float = 1.0) -> bool:
+    """Is a local speech server listening? Used to pick a backend automatically."""
+    host = urllib.parse.urlparse(local_url())
+    try:
+        with socket.create_connection(
+            (host.hostname or "127.0.0.1", host.port or 8000), timeout
+        ):
+            return True
+    except OSError:
+        return False
+
+
+def pick_backend(requested: str | None) -> str:
+    """Resolve which backend to use. 'auto' prefers whatever is already running."""
+    choice = (requested or os.environ.get("BP_TTS") or "auto").lower()
+    if choice != "auto":
+        return choice
+    if local_up():
+        return "kokoro"
+    return "elevenlabs" if api_key() else "say"
+
+
+def say_fallback(text: str, why: str = "") -> int:
+    if why:
+        print(f"{why} - falling back to `say`", file=sys.stderr)
+    return subprocess.run(["say", text]).returncode
+
+
+# The server picks the container itself, so trust its content-type rather than
+# assuming: mlx-audio defaults to mp3 even when the request says nothing.
+CONTENT_EXT = {
+    "audio/mpeg": "mp3", "audio/mp3": "mp3",
+    "audio/wav": "wav", "audio/x-wav": "wav", "audio/wave": "wav",
+    "audio/flac": "flac", "audio/x-flac": "flac",
+    "audio/ogg": "ogg", "audio/opus": "opus",
+    "audio/aac": "aac", "audio/pcm": "pcm",
+}
+
+
+def speak_kokoro(text: str, voice: str | None) -> tuple[bytes, str] | None:
+    """Synthesise via a local OpenAI-compatible server. Returns (audio, ext)."""
+    url = local_url()
+    body = {
+        "model": os.environ.get("KOKORO_MODEL", KOKORO_MODEL),
+        "input": text,
+        "voice": voice or os.environ.get("KOKORO_VOICE") or KOKORO_VOICE,
+    }
+    fmt = os.environ.get("KOKORO_FORMAT")
+    if fmt:
+        body["response_format"] = fmt
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=300) as r:
+            ctype = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
+            audio = r.read()
+            if not audio:
+                print("local TTS returned no audio - check the server's terminal "
+                      "for a traceback", file=sys.stderr)
+                return None
+            return audio, CONTENT_EXT.get(ctype, "mp3")
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode(errors="replace")[:300]
+        print(f"local TTS error {e.code}: {detail}", file=sys.stderr)
+    except http.client.IncompleteRead:
+        # A failed generation still returns 200 and then dies mid-stream.
+        print("local TTS closed the stream early - the request failed server-side; "
+              "check the server's terminal for a traceback", file=sys.stderr)
+    except OSError as e:
+        print(f"no local TTS server at {url} ({e}). Start it with:\n"
+              f"  mlx_audio.server --port 8000", file=sys.stderr)
+    return None
+
+
+def speak_elevenlabs(text: str, voice: str | None) -> tuple[bytes, str] | None:
     key = api_key()
     if not key:
-        print("(no ELEVEN_LABS_API_KEY - using macOS `say`)", file=sys.stderr)
-        return subprocess.run(["say", text]).returncode
-
+        print("no ELEVENLABS_API_KEY set", file=sys.stderr)
+        return None
     # explicit --voice wins, then the environment, then a stock voice
     voice_id = voice or os.environ.get("ELEVENLABS_VOICE_ID") or DEFAULT_VOICE
     model = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")
@@ -241,22 +331,42 @@ def speak(sec: dict, voice: str, save: bool) -> int:
         headers={"xi-api-key": key, "Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req) as r:
-            audio = r.read()
+        with urllib.request.urlopen(req, timeout=120) as r:
+            return r.read(), "mp3"
     except urllib.error.HTTPError as e:
-        detail = e.read().decode(errors="replace")[:400]
+        detail = e.read().decode(errors="replace")[:300]
         print(f"ElevenLabs error {e.code}: {detail}", file=sys.stderr)
-        print("falling back to `say`", file=sys.stderr)
-        return subprocess.run(["say", text]).returncode
+    except OSError as e:
+        print(f"ElevenLabs unreachable: {e}", file=sys.stderr)
+    return None
 
+
+def speak(sec: dict, voice: str | None, save: bool, backend: str | None = None) -> int:
+    text = to_speech(sec)
+    chosen = pick_backend(backend)
+
+    if chosen == "say":
+        return say_fallback(text)
+
+    synth = {"kokoro": speak_kokoro, "elevenlabs": speak_elevenlabs}.get(chosen)
+    if synth is None:
+        print(f"unknown TTS backend {chosen!r}. use: kokoro, elevenlabs, say",
+              file=sys.stderr)
+        return 1
+
+    result = synth(text, voice)
+    if result is None:
+        return say_fallback(text, f"{chosen} unavailable")
+
+    audio, ext = result
     AUDIO.mkdir(exist_ok=True)
-    out = AUDIO / f"{sec['id']}.mp3"
+    out = AUDIO / f"{sec['id']}.{ext}"
     out.write_bytes(audio)
     rc = subprocess.run(["afplay", str(out)]).returncode
-    if not save:
-        out.unlink(missing_ok=True)
-    else:
+    if save:
         print(f"saved {out}", file=sys.stderr)
+    else:
+        out.unlink(missing_ok=True)
     return rc
 
 
@@ -537,7 +647,7 @@ def cmd_speak(book: Book, args) -> int:
     if args.text_only:
         print(to_speech(sec))
         return 0
-    return speak(sec, args.voice, args.save)
+    return speak(sec, args.voice, args.save, args.backend)
 
 
 def main() -> int:
@@ -586,8 +696,10 @@ def main() -> int:
 
     s = sub.add_parser("speak", help="read a section aloud")
     s.add_argument("id")
-    s.add_argument("--voice", help="ElevenLabs voice id (overrides ELEVENLABS_VOICE_ID)")
-    s.add_argument("--save", action="store_true", help="keep the mp3 in audio/")
+    s.add_argument("--voice", help="voice id/name for the chosen backend")
+    s.add_argument("--backend", choices=["auto", "kokoro", "elevenlabs", "say"],
+                   help="TTS backend (default: $BP_TTS, else auto)")
+    s.add_argument("--save", action="store_true", help="keep the audio in audio/")
     s.add_argument("--text-only", action="store_true", help="print speech text, don't play")
     s.set_defaults(fn=cmd_speak)
 

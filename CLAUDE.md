@@ -130,16 +130,21 @@ wrong ruling costs the player their game.
 
 ## Voice
 
-`./bp speak <id>` reads a section aloud through ElevenLabs, normalizing the text
-first ("r203" → "rule 203", table columns → commas).
+`./bp speak <id>` reads a section aloud, normalizing the text first ("r203" →
+"rule 203", table columns → commas). `--save` keeps the audio in `audio/`;
+`--text-only` prints the normalized text without playing it.
 
-Credentials live in `.env` (git-ignored, loaded automatically): `ELEVENLABS_API_KEY`,
-and optionally `ELEVENLABS_VOICE_ID` and `ELEVENLABS_MODEL`. Without a key it falls
-back to the macOS `say` command, so it always does something. `--save` keeps the mp3
-in `audio/`; `--text-only` prints the normalized text without playing it.
+Three backends, chosen automatically unless `BP_TTS` or `--backend` says otherwise:
 
-Free ElevenLabs accounts can only use `premade` voices via the API; `professional`
-and library voices fail with HTTP 402, and `bp` falls back to `say` when that happens.
+- `kokoro` — a local Kokoro-82M server (free, offline). Used when something is
+  listening on `KOKORO_URL`, default `http://127.0.0.1:8000/v1/audio/speech`.
+- `elevenlabs` — the hosted API, when `ELEVENLABS_API_KEY` is set.
+- `say` — the macOS built-in, always available as a last resort.
+
+Settings live in `.env` (git-ignored, loaded automatically). Nothing hard-fails: an
+unreachable backend falls back to `say` and prints why. If the player wants local
+voice and the server isn't running, the fix is `mlx_audio.server --port 8000` —
+setup is in `docs/local-tts.md`.
 
 Offer to speak sections, but don't do it on every lookup unless the player asks —
 in a text conversation they can usually just read it.
