@@ -19,3 +19,16 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+NOTE ON SCOPE
+
+This licence covers only the code and documentation in this repository: the
+extraction and lookup tools, the CLI, and the notes in data/errata.json.
+
+It does NOT cover the game *Barbarian Prince*, which is copyright (c) 1981
+Heritage USA and remains the sole copyright of Reaper Miniatures. No part of
+the game text, tables, artwork, or map is distributed with this repository.
+See the README for how to obtain the game files from the publisher-authorised
+source, and for the terms attached to them.

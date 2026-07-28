@@ -1,0 +1,15 @@
+# Game content - copyright Reaper Miniatures, not redistributed from this repo.
+# Download the booklets yourself (see README) and regenerate the data locally.
+pdfs/
+data/*.json
+# errata.json is hand-written commentary, not extracted content, so it is tracked.
+!data/errata.json
+
+# Generated speech
+audio/
+
+# Secrets
+.env
+
+.DS_Store
+__pycache__/

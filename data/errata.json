@@ -1,0 +1,64 @@
+{
+  "_comment": "Hand-maintained. Not overwritten by tools/extract.py. Records typos in the original 1981 text and sections that genuinely do not exist, so lookups fail loudly and correctly instead of silently.",
+  "typos": {
+    "r119": {
+      "read_as": "r319",
+      "appears_in": [
+        "e005"
+      ],
+      "note": "e005 evade column reads 'hide r119'. r319 is 'Hide'. There is no r119."
+    },
+    "e341": {
+      "read_as": "r341",
+      "appears_in": [
+        "e008",
+        "e049"
+      ],
+      "note": "Both read 'conversation, see e341'. r341 is 'Conversation'. Events stop at e195."
+    },
+    "e250": {
+      "read_as": "e150",
+      "appears_in": [
+        "r211"
+      ],
+      "note": "r211 table reads 'Permitted to pay your respects, e250'. e150 is titled 'Pay Your Respects'."
+    },
+    "e226": {
+      "read_as": "e126",
+      "appears_in": [
+        "r230"
+      ],
+      "note": "r230 raft table, 2d6 roll of 3. e126 is 'Raft caught in Current', the only sensible raft event. Events stop at e195."
+    }
+  },
+  "nonexistent": {
+    "r229": "The rules booklet states: 'sections r229 and r282-299 do not exist'.",
+    "r282-r299": "The rules booklet states: 'sections r229 and r282-299 do not exist'.",
+    "e167-e179": "The events booklet states: 'There are no sections e167 through e179'."
+  },
+  "_source_fixes_comment": "Literal repairs applied by tools/extract.py before tables are parsed. Kept as explicit find/replace pairs so each is auditable against the printed page. Applied in order; a pair that no longer matches is reported by the extractor. Deliberately limited to short OCR-level tokens - structural defects are handled by rules in tools/tables.py instead, so no substantive game text is stored here.",
+  "source_fixes": {
+    "e067": [
+      [
+        "e-e046",
+        "3-e046",
+        "OCR set the 3 as an e. Rolls 1,2,4,5,6 are all present, so this is die roll 3."
+      ]
+    ]
+  },
+  "missing_from_source": {
+    "e189": {
+      "name": "Charisma Talisman",
+      "referenced_by": [
+        "e037",
+        "e043",
+        "e144",
+        "e195"
+      ],
+      "note": "Referenced as a treasure result but its section is absent from this PDF. e144 describes it as 'a charisma talisman (e189) to walk among them'. Treat as a charm/charisma item and adjudicate by analogy with e182 Gift of Charm if it comes up."
+    }
+  },
+  "orphan_footnote_markers": {
+    "e100": "The evade column is marked with an asterisk but no footnote was printed beneath the table. The other Griffon note (about its claws) is unrelated. Treat evade as having no special condition."
+  }
+}
