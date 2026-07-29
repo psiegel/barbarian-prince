@@ -31,7 +31,17 @@
       "note": "r230 raft table, 2d6 roll of 3. e126 is 'Raft caught in Current', the only sensible raft event. Events stop at e195."
     }
   },
-  "nonexistent": {
+  "_hex_typos_comment": "Coordinates the printed text gets wrong. Unlike the section typos above these are not auto-corrected on lookup - they are recorded so a wrong hex is caught when it is read out, and so data/procedures.json can cite why it disagrees with the page.",
+ "hex_typos": {
+  "0801": {
+   "read_as": "0901",
+   "appears_in": [
+    "e001"
+   ],
+   "note": "e001 gives caravan destination 3 as 'Ruins of Jakor's Keep (0801)'. The ruins are drawn in 0901; 0801 is empty hills. Confirmed against the map. Matters twice over - it is a starting hex and a 'search ruins' site, and the two hexes are different terrain (mountains vs hills), so the travel row differs too."
+  }
+ },
+ "nonexistent": {
     "r229": "The rules booklet states: 'sections r229 and r282-299 do not exist'.",
     "r282-r299": "The rules booklet states: 'sections r229 and r282-299 do not exist'.",
     "e167-e179": "The events booklet states: 'There are no sections e167 through e179'.",

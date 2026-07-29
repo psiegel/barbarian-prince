@@ -43,7 +43,7 @@
     "hexes": {
       "1": "Ogon (0101)",
       "2": "hex 0701",
-      "3": "Ruins of Jakor's Keep (0801)",
+      "3": "Ruins of Jakor's Keep (0901 - e001 prints 0801, which is a typo; see errata.json)",
       "4": "hex 1301",
       "5": "Weshor (1501)",
       "6": "hex 1801"

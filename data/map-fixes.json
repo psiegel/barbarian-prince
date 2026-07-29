@@ -1,4 +1,11 @@
 {
   "_comment": "Hand-maintained corrections to data/map-data.csv, which is a third-party transcription and not part of the published game. Same role as errata.json: each entry records a deliberate decision so it can be audited, rather than editing the CSV and losing the trail. Applied by tools/extract_map.py, which marks corrected hexes with \"corrected\": true. Entries are keyed by hex id and shallow-merged over the parsed row.",
-  "hexes": {}
+  "hexes": {},
+
+  "_confirmed_comment": "Findings that have been checked against the map and are not defects. The key is any substring of the reported line; matching findings are demoted rather than hidden, so the reason travels with them.",
+  "confirmed": {
+    "AERAVIR CASTLE": "Not a duplicate row - the castle is drawn large enough to occupy both 1923 and 2023. r211 cites 1923, so that is the hex of record for seeking an audience.",
+    "1611": "Terrain really is mountains: a single mountain hex sitting inside the Wredwrock Badlands, which is why e144 names the badlands around it. Travel rolls here use the mountains row, not hills.",
+    "0801": "e001's coordinate is the error, not the CSV. The Ruins of Jakor's Keep are in 0901; 0801 is empty hills. Recorded in errata.json under hex_typos, and procedures.json starts caravan roll 3 in 0901."
+  }
 }
