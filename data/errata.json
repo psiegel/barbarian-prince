@@ -34,7 +34,8 @@
   "nonexistent": {
     "r229": "The rules booklet states: 'sections r229 and r282-299 do not exist'.",
     "r282-r299": "The rules booklet states: 'sections r229 and r282-299 do not exist'.",
-    "e167-e179": "The events booklet states: 'There are no sections e167 through e179'."
+    "e167-e179": "The events booklet states: 'There are no sections e167 through e179'.",
+    "r223-r224": "Not an extraction gap: the booklet runs straight from r222 Rest & Healing Wounds to r225 Acquiring Treasure, and nothing in either booklet references r223 or r224. The printed 'does not exist' note covers only r229 and r282-299, so this gap goes unmentioned in the source."
   },
   "_source_fixes_comment": "Literal repairs applied by tools/extract.py before tables are parsed. Kept as explicit find/replace pairs so each is auditable against the printed page. Applied in order; a pair that no longer matches is reported by the extractor. Deliberately limited to short OCR-level tokens - structural defects are handled by rules in tools/tables.py instead, so no substantive game text is stored here.",
   "source_fixes": {

@@ -2,8 +2,12 @@
 # Download the booklets yourself (see README) and regenerate the data locally.
 pdfs/
 data/*.json
-# errata.json is hand-written commentary, not extracted content, so it is tracked.
+data/map-data.csv
+# errata.json, procedures.json and map-fixes.json are hand-written commentary,
+# sequencing and corrections, not extracted content, so they are tracked.
 !data/errata.json
+!data/procedures.json
+!data/map-fixes.json
 
 # Generated speech
 audio/

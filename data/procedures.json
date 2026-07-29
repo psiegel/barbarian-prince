@@ -1,0 +1,93 @@
+{
+  "_comment": "Hand-maintained, like errata.json. Not overwritten by tools/extract.py. Encodes the *order* of the procedures the booklet describes in prose (r202-r205, r215-r217) so `bp start`, `bp day` and `bp move` can walk them step by step instead of an LLM reassembling them from the text each turn. Every entry cites the section it comes from; nothing here restates game content that data/sections.json already holds.",
+
+  "setup": {
+    "goal": "Collect 500 gold pieces and return to the Northlands within 10 weeks (70 days). Day 71 is a loss, and so is the Prince's death.",
+    "steps": [
+      {
+        "id": "premise",
+        "cite": "e001",
+        "read": "e001",
+        "prompt": "Read the opening. Stop before the caravan roll."
+      },
+      {
+        "id": "stats",
+        "cite": "r202",
+        "read": "r202",
+        "fixed": "combat skill 8, endurance 9, wealth code 2",
+        "die": "1d6",
+        "prompt": "Roll 1d6 for wit & wiles. A result of 1 counts as 2.",
+        "note": "Replaying: if they won last time they may take wit & wiles one lower, if they lost, one higher."
+      },
+      {
+        "id": "gold",
+        "cite": "r225",
+        "die": "1d6",
+        "prompt": "Roll 1d6 for starting gold: wealth code 2 on the Treasure Table.",
+        "resolve": "bp treasure 2 <die>"
+      },
+      {
+        "id": "hex",
+        "cite": "e001",
+        "die": "1d6",
+        "prompt": "Roll 1d6 for where the caravan dropped them.",
+        "resolve": "bp start <die>"
+      },
+      {
+        "id": "day1",
+        "cite": "r203",
+        "prompt": "Day 1 begins. Choose an action.",
+        "resolve": "bp day <hex type>"
+      }
+    ],
+    "hexes": {
+      "1": "Ogon (0101)",
+      "2": "hex 0701",
+      "3": "Ruins of Jakor's Keep (0801)",
+      "4": "hex 1301",
+      "5": "Weshor (1501)",
+      "6": "hex 1801"
+    },
+    "standing": [
+      "e002 is checked at the end of any day finishing north of the Tragoth River, after events but before the evening meal (e001, r215).",
+      "All six starting hexes are north of the Tragoth. e001's 'southern border' is the southern border of the Northlands Kingdom, which is the NORTH edge of the map - the Prince fled south and has not got clear yet. So expect e002 at the end of day 1 and every day until the party crosses the river southward. Getting south of the Tragoth is what the early game is about.",
+      "Ogon (0101) and Weshor (1501) add +1 to the e002 roll, and both are starting hexes - the guard looks hardest for you in the towns you might have run to."
+    ]
+  },
+
+  "day": {
+    "cite": "r203",
+    "actions": [
+      {"name": "rest",     "cite": "r222", "hexes": "any",
+       "note": "Heals one wound per character if no combat or escape happens. Still check for a travel event as if entering your own hex (r222), and rest improves hunting (r215)."},
+      {"name": "travel",   "cite": "r204", "hexes": "any",
+       "note": "The most common choice.", "resolve": "bp move <from> <to>"},
+      {"name": "search cache", "cite": "r214", "hexes": "any",
+       "note": "Only for a cache you previously placed."},
+      {"name": "seek news", "cite": "r209", "hexes": ["town", "castle", "temple"]},
+      {"name": "hire followers", "cite": "r210", "hexes": ["town", "castle"]},
+      {"name": "seek audience", "cite": "r211", "hexes": ["town", "castle", "temple"]},
+      {"name": "submit offering", "cite": "r212", "hexes": ["temple"]},
+      {"name": "search ruins", "cite": "r208", "hexes": ["ruins"]}
+    ],
+    "endofday": [
+      {"cite": "e002", "what": "If the day ends north of the Tragoth River, check e002 now - after events, before the meal.", "when": "north"},
+      {"cite": "r215", "what": "Feed the whole party. Mounts need fodder in terrain where the travel table says fodder is no."},
+      {"cite": "r216", "what": "Anyone who cannot be fed starves - resolve r216."},
+      {"cite": "r217", "what": "In a town, castle or temple, lodging must usually be bought.", "when": ["town", "castle", "temple"]},
+      {"cite": "r203", "what": "Advance the time track one day. The game is lost on day 71."}
+    ],
+    "one_action_note": "One action per day, and the whole party does it. Some events grant a bonus action, others force the time track forward several days (r203)."
+  },
+
+  "move": {
+    "cite": "r204",
+    "lost_terrain_conflict": "r205 says the lost check uses the terrain you are LEAVING; r205d says the post-river check uses the terrain of the new hex you are ENTERING. Both are quoted as printed - the specific rule is used for the river step and the general rule elsewhere. Travel events always use the terrain ENTERED (r204b).",
+    "speeds": {
+      "foot": "1 hex per day if anyone is unmounted (r204a).",
+      "mounted": "1 or 2 hexes per day if everyone is mounted (r204a).",
+      "airborne": "up to 3 hexes per day on winged mounts, flying all day, landing to camp (r204a). Winged parties may instead short-hop 1-2 hexes as normal mounted travel."
+    },
+    "after_event": "A travel event normally consumes the rest of the day (r204f). Exceptions: a fight where you killed everyone, and encounters that were only talk or negotiation - travel may continue if speed remains."
+  }
+}

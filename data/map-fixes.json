@@ -1,0 +1,4 @@
+{
+  "_comment": "Hand-maintained corrections to data/map-data.csv, which is a third-party transcription and not part of the published game. Same role as errata.json: each entry records a deliberate decision so it can be audited, rather than editing the CSV and losing the trail. Applied by tools/extract_map.py, which marks corrected hexes with \"corrected\": true. Entries are keyed by hex id and shallow-merged over the parsed row.",
+  "hexes": {}
+}

@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """Barbarian Prince reference CLI.
 
+  bp start                 how to begin a game: the setup sequence, in order
+  bp day town              the actions available today, and the end-of-day checks
+  bp move hills forest     the ordered travel checks for one hex of movement
   bp show r203 e001        print one or more sections
   bp search "food"         full-text search
   bp travel forest         travel table row for a terrain
   bp travel forest 3       ...resolved for a die roll of 3
+  bp travel forest 3 5     ...and the second die, down to the actual event
+  bp travel river --lost 9 is that 2d6 a failure to cross?
+  bp treasure 2 4          the r226 grid, by wealth code and die
   bp roll 2d6              roll dice
   bp refs r220             what a section links to, and what links to it
   bp list r                list section ids (optionally filtered by prefix)
@@ -24,6 +30,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+import play
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
@@ -53,9 +61,11 @@ def api_key() -> str | None:
     return os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("ELEVEN_LABS_API_KEY")
 
 
-def load(name: str) -> dict:
+def load(name: str, required: bool = True) -> dict | None:
     path = DATA / name
     if not path.exists():
+        if not required:
+            return None
         sys.exit(
             f"{path} is missing.\n\n"
             "The game data is generated from the booklets rather than shipped "
@@ -71,6 +81,9 @@ class Book:
         self.travel = load("travel.json")
         self.errata = load("errata.json")
         self.tables = load("tables.json")
+        self.procedures = load("procedures.json")
+        # Optional: the map is a third-party transcription, so bp works without it.
+        self.map = load("map.json", required=False)
 
     def table(self, sid: str) -> dict | None:
         return self.tables.get(self.normalize(sid))
@@ -126,6 +139,8 @@ class Book:
             return None
         if sid[0] == "r" and (num == 229 or 282 <= num <= 299):
             return f"{sid}: {self.errata['nonexistent'].get('r229') or ''}".strip()
+        if sid[0] == "r" and num in (223, 224):
+            return f"{sid}: {self.errata['nonexistent']['r223-r224']}"
         if sid[0] == "e" and 167 <= num <= 179:
             return f"{sid}: {self.errata['nonexistent']['e167-e179']}"
         return None
@@ -141,6 +156,10 @@ class Book:
             )
         lines.append(f"{'Rafting':<14}{'never':<7}{'10+':<7}{'see r230':<38}{'-':<7}-")
         return "\n".join(lines)
+
+    def fmt_section(self, sec: dict, note: str | None = None) -> str:
+        """So play.py can print a section without importing this module back."""
+        return fmt(sec, note)
 
     def incoming(self, sid: str) -> list[str]:
         sid = self.normalize(sid)
@@ -388,16 +407,36 @@ def cmd_show(book: Book, args) -> int:
     return rc
 
 
+def travel_row_hint(book: Book, q: str) -> str | None:
+    """Travel-table rows are not sections, so a search for 'cross river' or
+    'road' would otherwise come back empty and send the caller to memory."""
+    for key in book.travel["terrain"]:
+        if q in key or key in q:
+            return (f"r207   Travel Table row {key!r} - lost/event thresholds and the "
+                    f"die 1-6 references.\n       -> bp travel \"{key}\"")
+    alias = play.TERRAIN_ALIASES.get(q)
+    if alias:
+        return (f"r207   Travel Table: {q!r} is the {alias!r} row.\n"
+                f"       -> bp travel \"{alias}\"")
+    return None
+
+
 def cmd_search(book: Book, args) -> int:
-    q = args.query.lower()
+    query = " ".join(args.query) if isinstance(args.query, list) else args.query
+    q = " ".join(query.lower().split())
     hits = []
     for sid, sec in book.sections.items():
         hay = f"{sec['title']}\n{sec['body']}".lower()
         if q in hay:
             score = hay.count(q) + (10 if q in sec["title"].lower() else 0)
             hits.append((score, sid, sec))
+    hint = travel_row_hint(book, q)
+    if hint:
+        print(hint)
     if not hits:
-        print(f"no matches for {args.query!r}", file=sys.stderr)
+        if hint:
+            return 0
+        print(f"no matches for {query!r}", file=sys.stderr)
         return 1
     hits.sort(key=lambda h: (-h[0], h[1]))
     for _, sid, sec in hits[: args.limit]:
@@ -415,12 +454,21 @@ def cmd_travel(book: Book, args) -> int:
     if not args.terrain:
         print(book.travel_table_text())
         return 0
-    key = args.terrain.lower()
-    terrain = book.travel["terrain"].get(key)
-    if not terrain:
-        opts = ", ".join(book.travel["terrain"])
-        print(f"unknown terrain {args.terrain!r}. try: {opts}, rafting", file=sys.stderr)
+    try:
+        key = play.terrain_key(book, args.terrain)
+    except play.Refuse as e:
+        print(e, file=sys.stderr)
         return 1
+    terrain = book.travel["terrain"][key]
+
+    # The two 2d6 gates come first: they decide whether the 1d6 below happens.
+    if args.lost is not None:
+        print(play.check_lost(book, key, args.lost, args.guide))
+        return 0
+    if args.event is not None:
+        print(play.check_event(book, key, args.event))
+        return 0
+
     print(f"{terrain['name']}: lost on {terrain['lost_on']} (2d6), "
           f"event on {terrain['event_on']} (2d6), "
           f"hunt {terrain['hunt']}, fodder {terrain['fodder']}")
@@ -431,15 +479,30 @@ def cmd_travel(book: Book, args) -> int:
 
     ref = terrain["event_refs"][args.roll - 1]
     print(f"  die {args.roll} -> {ref}")
-    if ref in book.travel["refs"]:
-        print(f"\n{ref} - roll one die again:")
-        for i, ev in enumerate(book.travel["refs"][ref], 1):
-            print(f"  {i} -> {ev}")
-    else:
+    if ref not in book.travel["refs"]:
+        # A row that points straight at an event, with no second roll (e009 in
+        # farmland, the whole desert row).
         sec = book.get(ref)
         if sec:
             print()
             print(fmt(sec))
+        return 0
+
+    rolls = book.travel["refs"][ref]
+    if args.roll2 is None:
+        # Stopping here would hand back six outcomes the player has not earned,
+        # so name the second roll instead of listing what it leads to.
+        print(f"\n{ref} is a second table: roll 1d6 again.")
+        print(f"  -> bp travel {key!r} {args.roll} <die>".replace("'", '"'))
+        return 0
+    target, note = book.resolve(rolls[args.roll2 - 1])
+    print(f"  {ref} on {args.roll2} -> {target}")
+    sec = book.get(target)
+    if not sec:
+        print(book.why_missing(target) or f"{target} not found", file=sys.stderr)
+        return 1
+    print()
+    print(fmt(sec, note))
     return 0
 
 
@@ -660,14 +723,55 @@ def main() -> int:
     s.set_defaults(fn=cmd_show)
 
     s = sub.add_parser("search", help="full-text search")
-    s.add_argument("query")
+    # Quoting is easy to forget, and an unquoted `search cross river` erroring out
+    # is exactly the dead end that sends a caller back to guessing.
+    s.add_argument("query", nargs="+", help="words to look for; quoting optional")
     s.add_argument("-n", "--limit", type=int, default=12)
     s.set_defaults(fn=cmd_search)
 
     s = sub.add_parser("travel", help="travel table lookup")
     s.add_argument("terrain", nargs="?")
-    s.add_argument("roll", nargs="?", type=int, choices=range(1, 7))
+    s.add_argument("roll", nargs="?", type=int, choices=range(1, 7),
+                   help="the 1d6 that picks the event reference")
+    s.add_argument("roll2", nargs="?", type=int, choices=range(1, 7),
+                   help="the second 1d6, when that reference is itself a table")
+    s.add_argument("--lost", type=int, metavar="2d6",
+                   help="check the Lost column instead (r205)")
+    s.add_argument("--event", type=int, metavar="2d6",
+                   help="check the Event column instead (r204b)")
+    s.add_argument("--guide", action="store_true",
+                   help="party includes a guide: -1 to the lost roll (r205a)")
     s.set_defaults(fn=cmd_travel)
+
+    s = sub.add_parser("start", help="how to begin a game (e001, r202, r225)")
+    s.add_argument("roll", nargs="?", type=int, choices=range(1, 7),
+                   help="the caravan die, once they roll it")
+    s.set_defaults(fn=play.cmd_start)
+
+    s = sub.add_parser("day", help="today's actions and the end-of-day checks (r203)")
+    s.add_argument("hex_type", nargs="*",
+                   help="a hex id like 0101, or town/castle/temple/ruins")
+    s.set_defaults(fn=play.cmd_day)
+
+    s = sub.add_parser("hex", help="what is in a hex, and what is next to it")
+    s.add_argument("id", help="four digits, XXYY, like 1017")
+    s.add_argument("--drift", type=int, choices=range(1, 7), metavar="1-6",
+                   help="resolve an r205c airborne drift die to a destination hex")
+    s.set_defaults(fn=play.cmd_hex)
+
+    s = sub.add_parser("move", help="the ordered checks for one hex of travel (r204/r205)")
+    s.add_argument("frm", metavar="from", help="hex id or terrain you are leaving")
+    s.add_argument("to", help="hex id or terrain you are entering")
+    s.add_argument("--river", action="store_true", help="the move crosses a river (r204e)")
+    s.add_argument("--road", action="store_true", help="leaving by road (r204c)")
+    s.add_argument("--airborne", action="store_true", help="flying, not short-hopping (r204d)")
+    s.add_argument("--guide", action="store_true", help="party includes a guide (r205a)")
+    s.set_defaults(fn=play.cmd_move)
+
+    s = sub.add_parser("treasure", help="the r226 grid, by wealth code")
+    s.add_argument("code", help="wealth code, or A/B/C for the possession lines")
+    s.add_argument("roll", nargs="?", type=int, choices=range(1, 7))
+    s.set_defaults(fn=play.cmd_treasure)
 
     s = sub.add_parser("options", help="what to choose and roll, without spoilers")
     s.add_argument("id")
