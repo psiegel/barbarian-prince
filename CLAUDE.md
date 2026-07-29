@@ -115,28 +115,13 @@ the r202–r205 and r215–r217 procedures that `start`, `day` and `move` walk t
 
 ## Starting a game
 
-When the player wants to begin, run `./bp start` and walk the six steps it
-prints. Don't improvise a character or a starting position — every number comes
-from a table:
+When the player wants to begin, run `./bp start` and walk the six steps it prints.
+Don't improvise a character or starting position — every number comes from a table.
+Use `./bp start --step N` if you need one step at a time to keep yourself honest.
 
-1. Read `e001#premise` — the premise. 500 gold, ten weeks, the usurpers in the
-   palace. The passage ends where the text sends you to `r202`; stop there.
-2. `r202`: combat skill 8, endurance 9, wealth code 2 are **fixed** — the Prince
-   is the same man every game. Ask for 1d6 for wit & wiles; a 1 counts as 2.
-3. Starting gold is wealth code 2 on the Treasure Table. Ask for 1d6, then
-   `./bp treasure 2 <die>`. Don't read the grid yourself.
-4. Read `e001#caravan` — Ogab and the merchant wagons — then ask for 1d6 and run
-   `./bp start <die>`.
-5. Read `e001#dawn` — dawn in the ditch, and the standing `e002` warning.
-6. Day 1 begins — go to `./bp day`.
-
-**One step per message.** `e001` is written to be read in three sittings: it sends
-the reader to `r202` and says "return to this event", then stops again for the
-caravan die. Honour those pauses — read a passage, ask for what it needs, and
-wait. Don't read `e001` whole and then ask for three rolls at once, and don't
-paraphrase a passage you have already skipped ahead of. `./bp start --step N`
-prints a single step when you want to keep yourself honest, and every step names
-the `bp show e001#<part>` to read at it.
+> **Important:** All six starting hexes are north of the Tragoth River. The Prince has
+fled south but is still in guard country, so `e002` fires at the end of every day until
+the party crosses southward. Ogon (0101) and Weshor (1501) add +1 to that roll.
 
 ## Sections that withhold their last paragraph
 
@@ -155,14 +140,6 @@ the outcome line to adjudicate by hand; `bp resolve e060` will refuse.
 
 `./bp show <id> --parts` says whether any section has passages, and `bp` refuses
 on an unknown part rather than showing the wrong text.
-
-**All six starting hexes are north of the Tragoth River.** `e001`'s "southern
-border" means the southern border of the *Northlands Kingdom* — the north edge of
-the map. The Prince has fled south but is still in guard country, so `e002` fires
-at the end of day 1 and every day after until the party crosses the river
-southward. Getting south of the Tragoth is what the early game is about, and
-`e002` is a standing check the whole time. Ogon (0101) and Weshor (1501) are two
-of the starting hexes and both add +1 to that roll.
 
 ## The day protocol
 
