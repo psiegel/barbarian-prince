@@ -293,13 +293,19 @@ unreachable backend falls back to `say` and prints why. If the player wants loca
 voice and the server isn't running, the fix is `mlx_audio.server --port 8000` —
 setup is in `docs/local-tts.md`.
 
-Offer to speak sections, but don't do it on every lookup unless the player asks —
-in a text conversation they can usually just read it.
+**Voice is always used when a section has audio.** Never offer to print text instead —
+the player wants voice. If a section can be spoken (`./bp speak <id>`), call it.
+If there's no voice backend available, say so (with why) but still play the text through
+whatever backend exists; don't fall back to printing prose as a substitute.
 
 **"Read aloud" vs "look up".** When a step or instruction says "read ... aloud", use
-`./bp speak <id>` (or `speak --text-only` when you want plain text instead of audio).
-When it says "look up", "show", or just names a section id, `./bp show` is fine.
-`show` prints prose; `speak` plays voice. Use whichever the instruction says.
+`./bp speak <id>`. When it says "look up", "show", or just names a section id, `./bp show`
+is fine. For every encounter, travel step and day check that involves prose — always voice
+first.
+
+**Never recite prose from memory.** All section text must come from `./bp show` (for lookup)
+or `./bp speak` (for narration). Never pull text from your own knowledge of the source book.
+If `bp` is missing data for a section, say so and suggest re-running `python3 tools/extract.py`.
 
 ## Regenerating
 
