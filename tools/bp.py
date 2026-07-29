@@ -17,6 +17,19 @@
   bp refs r220             what a section links to, and what links to it
   bp list r                list section ids (optionally filtered by prefix)
   bp speak e001            read a section aloud (local Kokoro, ElevenLabs, or `say`)
+
+the character sheet - the numbers this game is played with, kept in saves/:
+
+  bp game                  day, food, gold, party, and what state they are in
+  bp game new --wits 4 --gold 30 --hex 0101   start tracking a game
+  bp time +1               advance the day counter (70 days, ten weeks)
+  bp food -3 / bp gold +40 spend or gain
+  bp party add Lancer --cs 5 --end 5 --pay 3  a follower joins (r210)
+  bp party wound Lancer +2 wounds, and what they do to him (r220c, r221)
+  bp eat                   the evening meal, and who goes without (r215, r216)
+  bp pay                   the day's wages to hired followers (r333)
+  bp lodge                 rooms and stables for the night (r217)
+  bp foe add Dwarf --cs 6 --end 7 --wealth 3  enemies, for this fight only
 """
 
 import argparse
@@ -34,6 +47,7 @@ import urllib.request
 from pathlib import Path
 
 import play
+import state
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
@@ -969,6 +983,11 @@ def main() -> int:
     s.add_argument("--save", action="store_true", help="keep the audio in audio/")
     s.add_argument("--text-only", action="store_true", help="print speech text, don't play")
     s.set_defaults(fn=cmd_speak)
+
+    # game, time, food, gold, party, eat, starve, lodge, foe - the recorded state
+    # of one playthrough, rather than what the booklet says. Registered from
+    # state.py so the sheet's dozen subcommands don't drown this function.
+    state.register(sub)
 
     args = p.parse_args()
     load_dotenv()

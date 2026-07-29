@@ -114,6 +114,13 @@
         "prompt": "Read the closing paragraph: dawn in the ditch, and the standing e002 warning."
       },
       {
+        "id": "record",
+        "cite": "r201",
+        "prompt": "Write the sheet down before play starts, so no number is carried in memory.",
+        "resolve": "bp game new <name> --wits <w&w> --gold <gold> --hex <hex>",
+        "note": "From then on bp game reads it back, and bp time/food/gold/party/eat/lodge change it. Every follower who joins gets bp party add with the combat skill and endurance the section printed."
+      },
+      {
         "id": "day1",
         "cite": "r203",
         "prompt": "Day 1 begins. Choose an action.",
@@ -154,6 +161,7 @@
       {"cite": "e002", "what": "If the day ends north of the Tragoth River, check e002 now - after events, before the meal.", "when": "north"},
       {"cite": "r215", "what": "Feed the whole party. Mounts need fodder in terrain where the travel table says fodder is no."},
       {"cite": "r216", "what": "Anyone who cannot be fed starves - resolve r216."},
+      {"cite": "r333", "what": "Pay the day's wages to any hired follower at the meal - unpaid hirelings leave."},
       {"cite": "r217", "what": "In a town, castle or temple, lodging must usually be bought.", "when": ["town", "castle", "temple"]},
       {"cite": "r203", "what": "Advance the time track one day. The game is lost on day 71."}
     ],

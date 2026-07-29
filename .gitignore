@@ -12,6 +12,9 @@ data/map-data.csv
 # Generated speech
 audio/
 
+# One JSON file per playthrough - somebody's game in progress, not source
+saves/
+
 # Secrets
 .env
 

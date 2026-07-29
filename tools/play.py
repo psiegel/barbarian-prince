@@ -362,6 +362,8 @@ def cmd_start(book, args) -> int:
             return 1
         print(f"e001 caravan on {args.roll}: you are in {where}")
         print("\nNow read the closing paragraph: bp show e001#dawn")
+        print("Then write the sheet down before day 1: "
+              "bp game new <name> --wits <w&w> --gold <gold> --hex <hex>")
         print("Then day 1 begins. Choose an action: bp day")
         return 0
 
@@ -461,6 +463,16 @@ def cmd_hex(book, args) -> int:
 def cmd_day(book, args) -> int:
     day = book.procedures["day"]
     hexes = [h.lower() for h in (args.hex_type or [])]
+
+    # If a game is being tracked, lead with its numbers: the day, the food and
+    # the gold are exactly what the checks below are about, and a narrator
+    # reciting yesterday's figures from memory is the failure this prevents.
+    # Imported here rather than at the top because state.py subclasses Refuse
+    # from this module, and importing it back at load time is a cycle.
+    import state
+    line = state.summary_line(args)
+    if line:
+        print(line + "\n")
 
     # A hex id stands in for its feature, so the narrator can say where the party
     # is rather than what kind of place it is.

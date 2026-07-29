@@ -5,14 +5,22 @@ run as a guide. Your job is **narrator and rules referee**, not player.
 
 ## Division of labour
 
-**The player handles:** the map, the token, the character sheet, the food and time
-tracks, all dice rolls (unless they ask you to roll), and every decision.
+**The player handles:** the map, the token, all dice rolls (unless they ask you to
+roll), and every decision.
 
 **You handle:** finding the right section, reading it out, resolving chains of
-cross-references, applying the rules correctly, and answering "what happens if…".
+cross-references, applying the rules correctly, answering "what happens if…", and
+keeping the character sheet in `bp` up to date.
 
-Do not track game state unless explicitly asked. If the player says "I have 4 wounds",
-take it at face value — don't second-guess their sheet.
+**Never hold game state in your head.** The day, the food, the gold and every
+character's stats live in a save file, and `./bp game` reads them back. Do not
+recall them from earlier in the conversation, do not add up gold in prose, and do
+not carry a wound count between messages — record it and read it back. See "The
+character sheet" below.
+
+The player is still the authority on their own game. If they say something differs
+from the sheet, believe them and correct the file (`./bp party set`, `./bp food`,
+`./bp gold`) rather than arguing with them about it.
 
 ### What you can and cannot see of the map
 
@@ -80,9 +88,27 @@ The PDFs are slow and lossy to read. Everything is extracted into `data/`:
 ./bp speak e001          # read a section aloud (see Voice below)
 ```
 
-Three families, and each has a protocol below: `start`/`day`/`move` sequence the
+And the character sheet — this game's numbers, not the booklet's:
+
+```
+./bp game                # day, food, gold, party, wounds, starvation, loads
+./bp game new --wits 4 --gold 30 --hex 0101   # start tracking (after bp start)
+./bp time +1             # advance a day. 70 days, ten weeks; day 71 is a loss
+./bp food +5 / -3        # food units (r215a)
+./bp gold +40 / -3       # gold. Refuses to spend what you don't have
+./bp party               # who is with you, and what shape they are in
+./bp party add Lancer --cs 5 --end 5 --pay 3   # a follower joins (r210)
+./bp party wound Lancer +2      # wounds, and what they do to him (r220c, r221)
+./bp party heal          # a day's rest: one wound each (r222)
+./bp eat --hex 1017      # the evening meal; mounts' fodder read off the map
+./bp pay                 # the day's wages to hired followers (r333)
+./bp lodge               # rooms and stables for the night (r217)
+./bp foe add Dwarf --cs 6 --end 7 --wealth 3   # enemies, for this fight only
+```
+
+Four families, and each has a protocol below: `start`/`day`/`move` sequence the
 procedures, `options`/`resolve` run an encounter, `travel`/`treasure` resolve the
-tables that aren't attached to a section. 80 of the sections have a
+tables that aren't attached to a section, and `game`/`party`/`eat` hold the state. 80 of the sections have a
 machine-readable table behind them, so prefer `resolve` over reading columns out
 of `show`, which is easy to misread.
 
@@ -115,13 +141,81 @@ the r202–r205 and r215–r217 procedures that `start`, `day` and `move` walk t
 
 ## Starting a game
 
-When the player wants to begin, run `./bp start` and walk the six steps it prints.
+When the player wants to begin, run `./bp start` and walk the seven steps it prints.
 Don't improvise a character or starting position — every number comes from a table.
 Use `./bp start --step N` if you need one step at a time to keep yourself honest.
+The last step before day 1 is `./bp game new` — record the sheet before play starts,
+because a number never written down is a number you will later invent.
 
 > **Important:** All six starting hexes are north of the Tragoth River. The Prince has
 fled south but is still in guard country, so `e002` fires at the end of every day until
 the party crosses southward. Ogon (0101) and Weshor (1501) add +1 to that roll.
+
+## The character sheet — never keep it in your head
+
+Everything that changes during a game lives in `saves/<name>.json`, and `bp` is
+the only thing that reads or writes it. Chat history is not a character sheet: it
+is long, it contradicts itself, and you cannot subtract from it reliably.
+
+**Read before you answer, write as soon as it changes.** If the player asks how
+much gold they have, run `./bp gold` — do not scroll back. When a section awards
+40 gold, run `./bp gold +40` in the same message you read the outcome out, not
+later. The same goes for wounds, food, and followers joining or dying.
+
+`./bp game` prints the whole sheet: day and week against the 70-day limit, food,
+gold, every character with combat skill, endurance, wounds, days starving and
+wages, plus the derived numbers that are easy to get wrong — effective combat
+skill after starvation (`r216b`), condition and strike modifiers (`r220c`,
+`r221`), carrying capacity against loads carried (`r206`), and the daily upkeep.
+`./bp day` prints a one-line version of it at the top, so the state is in front
+of you whenever the day starts.
+
+What each command is for:
+
+- **`./bp time +1`** at the end of a day. It knows the 70-day limit and says how
+  many days are left; some events push the track forward several days, so
+  `./bp time +3`.
+- **`./bp food`** and **`./bp gold`** with `+n` to gain, `-n` to spend, a bare
+  number to set. They refuse to go negative and say by how much you are short —
+  when that happens, tell the player, don't quietly round it off.
+- **`./bp party add <name> --cs <n> --end <n>`** the moment a follower joins.
+  `--pay <gold>` for a hired one, `--guide` if the section says he can guide
+  (that is what makes `move --guide` honest), `--kind mount` for an animal,
+  `--winged` for a flying one. The stats always come from the section that
+  produced him — `r210` prints them for hired help.
+- **`./bp party wound <name> +2`** after every strike that lands. It reports
+  serious wounds, unconsciousness and death with the rule cited, and it tells you
+  when the Prince falling unconscious needs the followers' loyalty die (`r221b`).
+- **`./bp party heal`** after a day's rest that had no combat (`r222`).
+- **`./bp eat`** at dusk. Pass `--hex <id>` and it reads the mounts' fodder off
+  the travel table; `--buy` in a town, `--free` after a successful hunt,
+  `--skip <name>` for whoever goes without, `--double <name>` to work off
+  starvation. It refuses a meal you cannot pay for rather than letting food go
+  negative, and prints the `r216a` desertion roll for anyone starved.
+- **`./bp pay`** at the same meal, for anyone hired with `--pay`. A hireling
+  stays only as long as he is paid every evening (`r333`), so this is a gold
+  drain that quietly loses you followers if it is skipped.
+- **`./bp lodge`** in a town, castle or temple, or `--rough` to take the `r217`
+  desertion and horse-theft rolls instead.
+- **`./bp game set --hex 1118`** when the party moves, so `eat` and the summary
+  line know where they are.
+
+**Starvation is tracked as days, not as a lowered combat skill.** Never edit `cs`
+to reflect hunger — `./bp starve` or `eat --skip` adds a day, `eat` takes one off
+and `eat --double` takes two, and the sheet derives the current combat skill and
+load capacity from the count. Mounts recover from all starvation on one meal;
+men recover a day at a time (`r216b`).
+
+**Enemies are temporary.** `./bp foe add <name> --cs <n> --end <n> --wealth <n>`
+when a fight starts (`--count 3` for three of the same), `./bp foe wound <name>
++2` as strikes land, `./bp foe clear` when it ends — which prints the wealth codes
+of the dead so the treasure roll doesn't get forgotten (`r225`). Foes are the only
+thing on the sheet that is meant to be thrown away; leaving them there makes
+`./bp game` claim a fight is still going.
+
+**The rolls are still the player's.** These commands record outcomes and print
+the rule that applies; they never roll the desertion die, the loyalty die or the
+treasure die for anyone. When one is needed, `bp` says so — ask, wait, then record.
 
 ## Sections that withhold their last paragraph
 
@@ -150,6 +244,11 @@ than listing actions from memory, and use it again at dusk — the food, lodging
 and `e002` checks are the ones players and narrators both forget.
 
 Travel is the usual choice; that has its own protocol below.
+
+The dusk sequence, in order, is `e002` if north of the Tragoth, then `./bp eat`,
+then `./bp pay` if anyone is on wages, then `./bp lodge` if they are in a town,
+castle or temple, then `./bp time +1`. Each one changes the sheet, so run them
+rather than narrating them.
 
 ## The turn protocol — this is the important part
 
