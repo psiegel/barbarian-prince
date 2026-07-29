@@ -105,6 +105,7 @@ And the character sheet — this game's numbers, not the booklet's:
 ./bp pay                 # the day's wages to hired followers (r333)
 ./bp lodge               # rooms and stables for the night (r217)
 ./bp foe add Dwarf --cs 6 --end 7 --wealth 3   # enemies, for this fight only
+./bp fight auto          # only when asked: roll out the whole fight (r220)
 ./bp encounter set e052 goblins 5   # the player's own count for a band
 ./bp encounter clear     # the encounter is over; forget the counts
 ```
@@ -221,6 +222,8 @@ thing on the sheet that is meant to be thrown away; leaving them there makes
 **The rolls are still the player's.** These commands record outcomes and print
 the rule that applies; they never roll the desertion die, the loyalty die or the
 treasure die for anyone. When one is needed, `bp` says so — ask, wait, then record.
+The single exception is `./bp fight auto`, which the player has to ask for by
+name; see "Auto-resolving a combat" below.
 
 ## How many of them there are
 
@@ -334,6 +337,53 @@ because that selects the sub-table, then ask for 2d6 plus any modifiers:
 
 A plain roll table like `r208` has no choice at all — read the setup, ask for the
 roll, then `./bp resolve r208 7`.
+
+## Auto-resolving a combat
+
+A fight is normally played a strike at a time: the player picks who faces whom,
+rolls each 2d6, and you record it with `./bp foe wound` and `./bp party wound`.
+That is the default and it stays the default.
+
+**`./bp fight auto` is the exception, and only on request.** When the player says
+"auto this fight" — or asks you to just run the combat — `bp` rolls every round
+itself and prints the log. Never offer it as a shortcut when they haven't asked,
+never reach for it because a fight looks tedious, and never use it for a fight
+they are part-way through deciding.
+
+Before you run it:
+
+1. **The enemies must be on the sheet already.** `./bp foe add <name> --cs <n>
+   --end <n> --wealth <n> --count <n>`, with the count `bp` printed when the
+   section was read out. `fight auto` fights what is on the sheet and nothing
+   else.
+2. **Ask about routs, once.** `--rout` tries to frighten the survivors off after
+   every round in which somebody dies (`r220f`) — 1d6 per kill, and a 6 ends the
+   fight. It is faster and it is safer, but routed enemies vanish with their
+   wealth, so it costs treasure. The answer applies to every round, so ask before
+   the first one: "do you want to try to rout them each round?"
+3. **Read the strike order off the event.** `--first them` when the section says
+   the enemy strikes first, `--surprise us` or `--surprise them` when it grants
+   surprise (`r220d`: one free strike, then that side leads every round). The
+   default is `--first us`; don't pass a flag the section didn't give you.
+
+What it decides for the player, so don't ask them: targets are matched
+round-robin (`r220b`, leaving the helpless for last), and **the party never
+flees** — `r220e` escape is a decision, so a party that might run has to fight by
+hand.
+
+Where it stops and hands back:
+
+- **Every enemy dead** — read the log, then `./bp foe clear` for the wealth codes
+  and the player's treasure rolls (`r225`). The loot is still theirs to roll.
+- **The enemy routed** — the survivors are gone and so is their wealth.
+- **The Prince falls unconscious** (`r221b`) — it stops mid-fight, because the
+  loyalty die is the player's and what happens to a helpless Prince is a ruling,
+  not a table. Ask for the 1d6, apply it, then adjudicate.
+- **The Prince dies** — the game is lost (`r221c`). Say so plainly.
+
+Read the log out with some colour rather than pasting it silently, and don't
+re-narrate the arithmetic in the brackets unless they ask. The wounds are already
+on the sheet when it finishes — don't apply them again with `party wound`.
 
 ## The travel protocol
 

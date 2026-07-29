@@ -1,0 +1,373 @@
+"""Auto-resolved combat: the whole fight, rolled out by code (r220).
+
+Everything else in `bp` hands a die back to the player. This is the one place
+that does not, and it exists because a nine-goblin fight is twenty minutes of
+arithmetic that nobody enjoys and that goes wrong quietly. The player asks for
+it explicitly - it is never the default - and in exchange for the speed they
+give up every decision inside the fight.
+
+What the code decides, so that nothing here is a judgement call:
+
+  targets     round-robin (r220b): the strikers are matched against the enemies
+              in order and wrap around. The only preference is that the helpless
+              are left for last - an unconscious character cannot strike back
+              (r221b), and no strike is spent on one who has already fallen.
+  escape      never. r220e is a real option and a good one, but a party that
+              might flee is a party making decisions, and that is not this
+              command. Fight it by hand instead.
+  routs       r220f is optional, so it is a flag decided once before the fight
+              and applied every round. Ask the player; do not assume.
+
+Where the rules stop being arithmetic, so does this command: the Prince falling
+unconscious needs the r221b loyalty die and a referee, and the treasure of the
+dead is still rolled through `bp foe clear`. Both stop the fight and say so
+rather than being guessed at.
+
+Wounds are written to the save as each round ends, so an interrupted fight
+leaves the sheet true as far as it got.
+"""
+
+import argparse
+import random
+import sys
+
+import state
+from state import Refuse
+
+# A fight where neither side can reach the other would otherwise spin forever.
+# No honest fight comes near this, so hitting it means something is wrong.
+MAX_ROUNDS = 100
+
+# r220f: those too formidable to frighten. They fight to the death.
+ROUT_IMMUNE = 9
+
+
+def can_strike(ch: dict) -> bool:
+    """r221b: the unconscious no longer strike, though they can still be struck."""
+    return not state.is_mount(ch) and not state.dead(ch) and not state.unconscious(ch)
+
+
+def in_fight(ch: dict) -> bool:
+    """Still a target. Mounts are not combatants; the helpless still are."""
+    return not state.is_mount(ch) and not state.dead(ch)
+
+
+def rout_immune(f: dict) -> bool:
+    return f["cs"] >= ROUT_IMMUNE or f["end"] >= ROUT_IMMUNE
+
+
+# --- one strike -----------------------------------------------------------
+
+
+def strike(striker: dict, target: dict, rng: random.Random) -> dict:
+    """Resolve one strike (r220c) without applying it."""
+    skill = state.effective_cs(striker) - state.effective_cs(target)
+    dice = [rng.randint(1, 6), rng.randint(1, 6)]
+    hurt = state.strike_mod(striker)
+    exposed = state.target_mod(target)
+    total = skill + sum(dice) + hurt + exposed
+    return {"skill": skill, "dice": dice, "hurt": hurt, "exposed": exposed,
+            "total": total, "wounds": state.wounds_for(total)}
+
+
+def arithmetic(s: dict) -> str:
+    """The strike, shown, so a player who wants to check it can."""
+    parts = [f"2d6 {sum(s['dice'])} [{'+'.join(str(d) for d in s['dice'])}]",
+             f"skill {s['skill']:+d}"]
+    if s["hurt"]:
+        parts.append(f"{s['hurt']:+d} own wounds")
+    if s["exposed"]:
+        parts.append(f"{s['exposed']:+d} target hurt")
+    return f"{', '.join(parts)} = {s['total']}"
+
+
+def strike_line(striker: dict, target: dict, s: dict) -> str:
+    """One line of the log, as the player reads it."""
+    if not s["wounds"]:
+        return (f"{striker['name']} strikes at {target['name']} and misses.  "
+                f"[{arithmetic(s)}]")
+    hit = (f"{striker['name']} strikes {target['name']} for "
+           f"{state.plural(s['wounds'], 'wound')}")
+    if state.dead(target):
+        hit += f" - {target['name']} is dead"
+    elif state.unconscious(target):
+        hit += f" - {target['name']} is unconscious and helpless"
+    elif state.serious(target):
+        hit += f" - {target['name']} is seriously wounded"
+    return f"{hit}.  [{arithmetic(s)}]"
+
+
+# --- one side's half of a round -------------------------------------------
+
+
+def target_pool(targets: list[dict]) -> list[dict]:
+    """Who is worth facing: those still able to strike back, if any are.
+
+    An unconscious enemy is helpless and harmless (r221b), so leaving him until
+    last is the obvious choice rather than a tactic - the alternative is trading
+    strikes with a body while someone who can still hit you does.
+    """
+    standing = [t for t in targets if in_fight(t)]
+    return [t for t in standing if can_strike(t)] or standing
+
+
+def match_up(strikers: list[dict], targets: list[dict]) -> list[tuple[dict, dict]]:
+    """r220b: each striker against one enemy, round-robin when they run out."""
+    return [(s, targets[i % len(targets)]) for i, s in enumerate(strikers)]
+
+
+def strike_phase(strikers: list[dict], targets: list[dict],
+                 rng: random.Random, log: list[str]) -> list[dict]:
+    """All of one side's strikes, results applied. Returns those killed."""
+    pool = target_pool(targets)
+    if not pool:
+        return []
+    killed = []
+    for striker, target in match_up([s for s in strikers if can_strike(s)], pool):
+        if not in_fight(target):
+            # He fell earlier this round, so the strike goes to someone still up
+            # rather than being spent on a corpse.
+            left = target_pool(targets)
+            if not left:
+                break
+            target = left[0]
+        s = strike(striker, target, rng)
+        target["wounds"] += s["wounds"]
+        log.append("  " + strike_line(striker, target, s))
+        if s["wounds"] and state.dead(target):
+            killed.append(target)
+    return killed
+
+
+def rout_check(g: dict, killed: list[dict], rng: random.Random,
+               log: list[str]) -> list[dict]:
+    """r220f: one die per enemy killed this round. A 6 and the rest flee."""
+    survivors = [f for f in g["foes"] if in_fight(f)]
+    liable = [f for f in survivors if not rout_immune(f)]
+    if not survivors:
+        return []
+    if not liable:
+        who = ("he is" if len(survivors) == 1 else "they are")
+        fights = ("he fights" if len(survivors) == 1 else "they fight")
+        log.append(f"  no rout check - {who} combat skill or endurance "
+                   f"{ROUT_IMMUNE}+, so {fights} to the death (r220f).")
+        return []
+    dice = [rng.randint(1, 6) for _ in killed]
+    rolled = ", ".join(str(d) for d in dice)
+    if 6 not in dice:
+        log.append(f"  rout check, one die per kill: {rolled} - no 6, they stand "
+                   f"their ground (r220f).")
+        return []
+    for f in liable:
+        g["foes"].remove(f)
+    flee = ("breaks and flees, carrying his wealth away with him"
+            if len(liable) == 1 else
+            "break and flee, carrying their wealth away with them")
+    log.append(f"  rout check, one die per kill: {rolled} - a 6! "
+               f"{state.plural(len(liable), 'enemy', 'enemies')} {flee} (r220f).")
+    return liable
+
+
+# --- the fight ------------------------------------------------------------
+
+
+def outcome(g: dict, rounds: int, routed: list[dict],
+            by_rout: bool = False) -> dict | None:
+    """The reason to stop, if there is one, checked after every strike phase.
+
+    `by_rout` says a rout just emptied the field, which is not the same ending as
+    killing the last of them: a fight can rout part of a band and then finish the
+    rest, and the wealth of the two groups is settled differently (r220f).
+    """
+    prince = state.player(g)
+    ours = [c for c in g["party"] if in_fight(c)]
+    theirs = [f for f in g.get("foes", []) if in_fight(f)]
+
+    if prince and state.dead(prince):
+        return {"why": "prince-dead", "rounds": rounds, "routed": routed,
+                "result": "The Barbarian Prince is dead. The game is lost (r221c)."}
+    if not theirs:
+        if by_rout:
+            return {"why": "routed", "rounds": rounds, "routed": routed,
+                    "result": "The enemy broke and ran - the survivors are gone, and "
+                              "so is the wealth they carried (r220f)."}
+        if routed:
+            won = "Everyone who stayed to fight is dead. The field is yours."
+        elif len(g.get("foes", [])) == 1:
+            won = "He is dead. The fight is yours."
+        else:
+            won = "Every one of them is dead. The fight is yours."
+        return {"why": "won", "rounds": rounds, "routed": routed, "result": won}
+    if not ours:
+        return {"why": "wiped-out", "rounds": rounds, "routed": routed,
+                "result": "Your whole party has fallen. The enemy holds the field."}
+    if prince and state.unconscious(prince):
+        return {"why": "prince-down", "rounds": rounds, "routed": routed,
+                "result": "The Prince is unconscious and helpless, combat skill 0 "
+                          "(r221b) - the fight stops here for a ruling."}
+    if not any(can_strike(c) for c in ours) and not any(can_strike(f) for f in theirs):
+        return {"why": "stalemate", "rounds": rounds, "routed": routed,
+                "result": "Nobody left standing on either side can strike - the "
+                          "fight cannot go on."}
+    return None
+
+
+def fight(g: dict, rng: random.Random, rout: bool = False, first: str = "us",
+          surprise: str | None = None) -> tuple[list[str], dict]:
+    """Run the fight to its end. Returns (the log, the outcome)."""
+    log: list[str] = []
+    routed: list[dict] = []
+
+    def ours() -> list[dict]:
+        return [c for c in g["party"] if not state.is_mount(c)]
+
+    def theirs() -> list[dict]:
+        return g["foes"]
+
+    def phase(side: str) -> dict | None:
+        """One side strikes; returns an outcome if that ended the fight."""
+        nonlocal routed
+        fled = []
+        if side == "us":
+            killed = strike_phase(ours(), theirs(), rng, log)
+            if rout and killed:
+                fled = rout_check(g, killed, rng, log)
+                routed += fled
+        else:
+            strike_phase(theirs(), ours(), rng, log)
+        cleared = bool(fled) and not any(in_fight(f) for f in theirs())
+        return outcome(g, rnd, routed, by_rout=cleared)
+
+    order = ["us", "them"] if first == "us" else ["them", "us"]
+    rnd = 0
+
+    if surprise:
+        # r220d: one free strike before the rounds begin, then that side leads.
+        who = "you have" if surprise == "us" else "they have"
+        log.append(f"Surprise - {who} one free strike before the fight begins (r220d).")
+        done = phase(surprise)
+        if done:
+            return log, done
+        order = ["us", "them"] if surprise == "us" else ["them", "us"]
+
+    for rnd in range(1, MAX_ROUNDS + 1):
+        lead = "you strike first" if order[0] == "us" else "they strike first"
+        log.append(f"\nRound {rnd} - {lead} (r220a).")
+        for side in order:
+            done = phase(side)
+            if done:
+                return log, done
+        state.write_game(g)
+
+    return log, {"why": "too-long", "rounds": MAX_ROUNDS, "routed": routed,
+                 "result": f"Still going after {MAX_ROUNDS} rounds. Something is "
+                           f"wrong - the sheet is saved as it stands; finish this "
+                           f"one by hand."}
+
+
+# --- the command ----------------------------------------------------------
+
+
+def cmd_fight_auto(book, args) -> int:
+    try:
+        g = state.load_game(args)
+        foes = g.get("foes", [])
+        if not foes:
+            raise Refuse("no fight in progress. bp foe add <name> --cs <n> --end <n> "
+                         "[--count <n>] for what the party is facing, then run this "
+                         "again.")
+        if not any(in_fight(f) for f in foes):
+            raise Refuse("every enemy in this fight is already dead. bp foe clear to "
+                         "collect what they carried (r225).")
+        prince = state.player(g)
+        if prince and state.dead(prince):
+            raise Refuse("the Prince is dead and the game is over (r221c).")
+        if prince and state.unconscious(prince):
+            raise Refuse("the Prince is unconscious and helpless (r221b) - he cannot "
+                         "strike, so there is no fight to roll. Settle the loyalty "
+                         "die and what becomes of him first.")
+        if not any(can_strike(c) for c in g["party"] if not state.is_mount(c)):
+            raise Refuse("nobody in the party is able to strike. There is no fight "
+                         "to roll out here.")
+
+        rng = random.Random(args.seed)
+        log, done = fight(g, rng, rout=args.rout, first=args.first,
+                          surprise=args.surprise)
+        when = (state.plural(done["rounds"], "round") if done["rounds"]
+                else "the free surprise strike")
+        state.note(g, f"auto combat: {done['why']} after {when}")
+        state.write_game(g)
+    except Refuse as e:
+        print(e, file=sys.stderr)
+        return 1
+
+    print("\n".join(log))
+    print(f"\n{done['result']}")
+    report(g, done)
+    return 0
+
+
+def report(g: dict, done: dict) -> None:
+    """The state of both sides once the dice stop, and what to do next."""
+    ours = [c for c in g["party"] if not state.is_mount(c)]
+    print("\nyour party:")
+    for c in ours:
+        print(f"  {c['name']}: {state.plural(c['wounds'], 'wound')} of {c['end']} "
+              f"endurance - {state.condition(c)}")
+
+    foes = g.get("foes", [])
+    killed = [f for f in foes if state.dead(f)]
+    left = [f for f in foes if in_fight(f)]
+    if left:
+        print("\nstill facing you:")
+        for f in left:
+            print(f"  {f['name']}: {state.plural(f['wounds'], 'wound')} of {f['end']} "
+                  f"endurance - {state.condition(f)}")
+    print(f"\n{state.plural(len(killed), 'enemy', 'enemies')} killed"
+          + (f", {len(done['routed'])} routed away" if done["routed"] else "")
+          + (f", {len(left)} still standing" if left else "") + ".")
+
+    if done["why"] == "prince-dead":
+        return
+    if done["why"] == "prince-down":
+        followers = [c for c in ours if c["kind"] == "follower" and not state.dead(c)]
+        if followers:
+            print(f"\nRoll 1d6 for the followers still with him "
+                  f"({', '.join(c['name'] for c in followers)}): 4 or more and they "
+                  f"carry him out at 20 loads (r206b); 3 or less and they desert, "
+                  f"taking his money and possessions with them (r221b). Then rule on "
+                  f"the fight - the enemy is still standing.")
+        else:
+            print("\nHe is alone and helpless with the enemy still standing. No "
+                  "loyalty die applies - there is nobody left to carry him or to "
+                  "desert him (r221b). Rule on what becomes of him.")
+        return
+    if done["why"] == "wiped-out":
+        print("\nNobody is left to strike back. Rule on what the enemy does with "
+              "the fallen.")
+        return
+    if killed or left:
+        print("\nbp foe clear when you are done here - it prints the wealth codes "
+              "of the dead so the treasure roll is not forgotten (r225).")
+
+
+def register(sub) -> None:
+    """Add `bp fight` to bp's subparser. Called from bp.main()."""
+    s = sub.add_parser("fight", help="resolve a whole combat by code (r220)")
+    fsub = s.add_subparsers(dest="fightcmd", required=True)
+
+    a = fsub.add_parser("auto", help="roll out every round until one side wins")
+    a.add_argument("--game", help="act on a save other than the current one")
+    a.add_argument("--rout", action="store_true",
+                   help="try to rout the enemy after each round in which you kill "
+                        "one: 1d6 per kill, a 6 and the survivors flee with their "
+                        "wealth (r220f). Ask the player before the fight; it "
+                        "applies every round.")
+    a.add_argument("--first", choices=["us", "them"], default="us",
+                   help="which side strikes first each round - the event says "
+                        "which (r220a, default: us)")
+    a.add_argument("--surprise", choices=["us", "them"],
+                   help="that side gets one free strike, then strikes first each "
+                        "round (r220d)")
+    a.add_argument("--seed", type=int, help="fix the dice, to replay a fight")
+    a.set_defaults(fn=cmd_fight_auto)

@@ -30,6 +30,7 @@ the character sheet - the numbers this game is played with, kept in saves/:
   bp pay                   the day's wages to hired followers (r333)
   bp lodge                 rooms and stables for the night (r217)
   bp foe add Dwarf --cs 6 --end 7 --wealth 3  enemies, for this fight only
+  bp fight auto            roll out a whole combat, round by round (r220)
   bp encounter             how many of them there are, once it has been read out
 """
 
@@ -47,6 +48,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import combat
 import creatures
 import play
 import state
@@ -1015,6 +1017,10 @@ def main() -> int:
     # of one playthrough, rather than what the booklet says. Registered from
     # state.py so the sheet's dozen subcommands don't drown this function.
     state.register(sub)
+
+    # bp fight auto - the one command that rolls its own dice, because a long
+    # fight resolved a strike at a time is where a game quietly goes wrong.
+    combat.register(sub)
 
     args = p.parse_args()
     load_dotenv()

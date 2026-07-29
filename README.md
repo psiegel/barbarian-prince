@@ -136,8 +136,39 @@ And the character sheet for a game in progress:
 ./bp pay                   # the day's wages to hired followers (r333)
 ./bp lodge                 # rooms and stables for the night (r217)
 ./bp foe add Dwarf --cs 6 --end 7 --wealth 3  # enemies, for one fight only
+./bp fight auto --rout     # roll out a whole combat, round by round (r220)
 ./bp encounter             # how many of them there are, once it has been read out
 ```
+
+Combat is normally played a strike at a time, which is the point — you choose who
+faces whom and you roll. But a nine-goblin fight is twenty minutes of subtraction
+that nobody enjoys and that goes wrong quietly, so `bp fight auto` will roll the
+whole thing: every round, both sides, until one of them is finished, and a log of
+what happened.
+
+```
+Round 3 - you strike first (r220a).
+  Cal Arath strikes Goblin 2 for 2 wounds - Goblin 2 is dead.  [2d6 9 [5+4], skill +5, -1 own wounds = 13]
+  Lancer strikes Goblin 3 for 1 wound.  [2d6 7 [6+1], skill +2, -1 own wounds = 8]
+  rout check, one die per kill: 6 - a 6! 5 enemies break and flee, carrying their wealth away with them (r220f).
+
+The enemy broke and ran - the survivors are gone, and so is the wealth they carried (r220f).
+```
+
+It is the one command in `bp` that rolls its own dice, so it is never the default
+and never volunteered — you ask for it. In exchange for the speed it takes the
+decisions inside the fight: targets are matched round-robin (`r220b`, helpless
+enemies left for last) and the party never flees, because `r220e` escape is a
+choice and a party that might run should fight by hand. `--rout` is the one
+decision left to you, taken once for the whole fight (`r220f`: 1d6 per kill, a 6
+and the survivors flee — faster, safer, and it costs you their wealth).
+`--first them` and `--surprise us|them` come off the event text (`r220a`,
+`r220d`); `--seed` replays a fight exactly.
+
+It stops where the rules stop being arithmetic. The Prince falling unconscious
+ends it mid-fight, because the `r221b` loyalty die and what becomes of a helpless
+Prince are yours to settle; the treasure of the dead is still rolled through
+`bp foe clear` (`r225`). Wounds are written to the save as each round ends.
 
 Two dozen sections leave the size of a band to a die — *"You sight a band of
 Goblins in the distance. Roll two dice for the number in the band."* Read out as

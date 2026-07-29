@@ -226,42 +226,56 @@ def capacity(ch: dict) -> int:
     return cap
 
 
+# The rules below read a character, and an enemy in the current fight is enough
+# of one: same name, combat skill, endurance and wounds. Enemies carry no kind
+# and never starve, so both are defaulted rather than required, and r220 then has
+# one implementation for both sides of a fight instead of two that can disagree.
+
+
+def is_mount(ch: dict) -> bool:
+    return ch.get("kind") == "mount"
+
+
+def starving(ch: dict) -> int:
+    return ch.get("starve", 0)
+
+
 def effective_cs(ch: dict) -> int:
     """r216b takes one off combat skill per day of starvation; r221b zeroes it."""
-    if ch["kind"] == "mount":
+    if is_mount(ch):
         return 0
     if dead(ch) or unconscious(ch):
         return 0
-    return max(0, ch["cs"] - ch["starve"])
+    return max(0, ch["cs"] - starving(ch))
 
 
 def dead(ch: dict) -> bool:
-    if ch["kind"] == "mount":
+    if is_mount(ch):
         # A mount whose capacity has been starved to zero dies (r216).
-        return ch["starve"] > 0 and capacity(ch) == 0
+        return starving(ch) > 0 and capacity(ch) == 0
     return ch["end"] > 0 and ch["wounds"] >= ch["end"]
 
 
 def unconscious(ch: dict) -> bool:
-    return (ch["kind"] != "mount" and ch["end"] > 0
+    return (not is_mount(ch) and ch["end"] > 0
             and not dead(ch) and ch["wounds"] >= ch["end"] - 1)
 
 
 def serious(ch: dict) -> bool:
     """r221a: wounds equalling or exceeding half endurance."""
-    return (ch["kind"] != "mount" and ch["end"] > 0
+    return (not is_mount(ch) and ch["end"] > 0
             and not dead(ch) and ch["wounds"] * 2 >= ch["end"])
 
 
 def condition(ch: dict) -> str:
     if dead(ch):
-        return ("DEAD - starved to no carrying capacity (r216)" if ch["kind"] == "mount"
+        return ("DEAD - starved to no carrying capacity (r216)" if is_mount(ch)
                 else "DEAD (r221c)")
     if unconscious(ch):
         return "unconscious and helpless (r221b)"
     if serious(ch):
         return "seriously wounded (r221a)"
-    if ch["kind"] == "mount" and ch["starve"]:
+    if is_mount(ch) and starving(ch):
         return "starving"
     return "ok"
 
@@ -269,13 +283,58 @@ def condition(ch: dict) -> str:
 def strike_notes(ch: dict) -> list[str]:
     """The r220c modifiers a wounded character carries into every strike."""
     out = []
-    if ch["kind"] == "mount" or dead(ch) or unconscious(ch):
+    if is_mount(ch) or dead(ch) or unconscious(ch):
         return out
     if ch["wounds"] >= 1:
         out.append("-1 to his own strikes (has wounds)")
     if serious(ch):
         out.append("-1 more to his own strikes, and +2 to strikes against him")
     return out
+
+
+# --- r220c: the strike, and the Combat Table ------------------------------
+
+# Strike total -> wounds inflicted. Any total that is not listed missed, which
+# is why this is a lookup and not a range: 9 misses although 8 and 10 both land.
+COMBAT_TABLE = {
+    1: (-1, 3, 5, 8, 11),
+    2: (10, 12, 13, 17),
+    3: (14,),
+    5: (16, 18, 19),
+    6: (20,),
+}
+
+WOUNDS_BY_TOTAL = {total: n for n, totals in COMBAT_TABLE.items() for total in totals}
+
+
+def wounds_for(total: int) -> int:
+    """r220c: the wounds a strike total inflicts, or 0 if the strike missed."""
+    return WOUNDS_BY_TOTAL.get(total, 0)
+
+
+def combat_table_prose() -> str:
+    """The Combat Table as a sentence, for printing next to a fight."""
+    return "; ".join(
+        ",".join(str(t) for t in totals) + f" {plural(n, 'wound')}"
+        for n, totals in COMBAT_TABLE.items()
+    )
+
+
+def strike_mod(ch: dict) -> int:
+    """r220c: what the striker's own wounds cost him."""
+    if is_mount(ch) or dead(ch) or unconscious(ch):
+        return 0
+    mod = 0
+    if ch["wounds"] >= 1:
+        mod -= 1
+    if serious(ch):
+        mod -= 1
+    return mod
+
+
+def target_mod(ch: dict) -> int:
+    """r220c: +2 to strikes at a target already half-way to death."""
+    return 2 if serious(ch) else 0
 
 
 # --- derived party numbers ------------------------------------------------
@@ -1113,17 +1172,15 @@ def cmd_lodge(book, args) -> int:
 
 
 def foe_row(f: dict) -> list[str]:
-    end = f["end"]
-    w = f["wounds"]
-    if end and w >= end:
+    if dead(f):
         state = "DEAD"
-    elif end and w >= end - 1:
+    elif unconscious(f):
         state = "unconscious and helpless, cs 0 (r221b)"
-    elif end and w * 2 >= end:
+    elif serious(f):
         state = "seriously wounded: +2 to strikes at him (r220c)"
     else:
         state = "ok"
-    return [f["name"], str(f["cs"]), str(end), str(w),
+    return [f["name"], str(f["cs"]), str(f["end"]), str(f["wounds"]),
             str(f["wealth"]) if f["wealth"] else "-", state]
 
 
@@ -1142,12 +1199,12 @@ def cmd_foe(book, args) -> int:
               "[--wealth <code>] [--count <n>]")
         return 0
     print(table([foe_row(f) for f in foes], FOE_HEAD))
-    standing = [f for f in foes if f["wounds"] < f["end"]]
-    print(f"\n{len(standing)} of {len(foes)} still standing.")
+    alive = [f for f in foes if not dead(f)]
+    print(f"\n{len(alive)} of {len(foes)} still standing.")
     print("Strike: striker's combat skill minus target's, plus 2d6, plus the r220c "
-          "modifiers. Results -1,3,5,8,11 one wound; 10,12,13,17 two; 14 three; "
-          "16,18,19 five; 20 six. Anything else misses.")
+          f"modifiers. Results {combat_table_prose()}. Anything else misses.")
     print("bp foe wound <name> +2 to apply one. bp foe clear when the fight ends.")
+    print("bp fight auto to have the whole fight rolled out round by round.")
     return 0
 
 
@@ -1192,11 +1249,11 @@ def cmd_foe_wound(book, args) -> int:
         return 1
     print(line)
     print(table([foe_row(f)], FOE_HEAD))
-    if f["end"] and f["wounds"] >= f["end"]:
+    if dead(f):
         print(f"\n{f['name']} is dead (r221c). Roll 1d6: on a 6 the rest rout and "
               f"flee, and you get none of their wealth (r220f). Enemies with combat "
               f"skill or endurance 9+ never rout.")
-        left = [x for x in g["foes"] if x["wounds"] < x["end"]]
+        left = [x for x in g["foes"] if not dead(x)]
         if not left:
             print("That was the last of them - the fight is over. bp foe clear")
     return 0
@@ -1209,7 +1266,7 @@ def cmd_foe_clear(book, args) -> int:
         if not foes:
             print("no combat in progress")
             return 0
-        killed = [f for f in foes if f["end"] and f["wounds"] >= f["end"]]
+        killed = [f for f in foes if dead(f)]
         loot = [f for f in killed if f["wealth"]]
         g["foes"] = []
         # The fight is over, so the band that was counted for it is over too.
