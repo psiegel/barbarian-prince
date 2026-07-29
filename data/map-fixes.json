@@ -6,6 +6,12 @@
   "confirmed": {
     "AERAVIR CASTLE": "Not a duplicate row - the castle is drawn large enough to occupy both 1923 and 2023. r211 cites 1923, so that is the hex of record for seeking an audience.",
     "1611": "Terrain really is mountains: a single mountain hex sitting inside the Wredwrock Badlands, which is why e144 names the badlands around it. Travel rolls here use the mountains row, not hills.",
-    "0801": "e001's coordinate is the error, not the CSV. The Ruins of Jakor's Keep are in 0901; 0801 is empty hills. Recorded in errata.json under hex_typos, and procedures.json starts caravan roll 3 in 0901."
+    "0801": "e001's coordinate is the error, not the CSV. The Ruins of Jakor's Keep are in 0901; 0801 is empty hills. Recorded in errata.json under hex_typos, and procedures.json starts caravan roll 3 in 0901.",
+    "the road into 1813": "Deliberate. The map draws the road from Tulith petering out in the mountains here, and labels the surviving stretch beyond it the Lost Road. It is meant to end in open country.",
+    "the road into 1912": "Deliberate - this is where the Lost Road starts. 1812 between here and 1813 has no road in the artwork at all, so the two stretches are genuinely severed and must not be joined up.",
+    "road network at 1911-2010": "Deliberate. This is the Lost Road, running north from 1912 towards the Ruins of Pelgar. It connects to no other road because the link back through 1812 to the Tulith road no longer exists on the map.",
+    "the road into 1803": "Deliberate. The road climbs from the Temple of Zhor through the hills of 1904 - the map labels that stretch the North Pass - and then runs north west into 1803, where it simply fades out in open countryside.",
+    "road network at 1803-1905": "Deliberate. The North Pass road serves the Temple of Zhor and nothing else; it fades out in 1803 rather than joining the road network to the west.",
+    "1823 S": "The direction is a guess. 1823 is drawn as a half hex with its south edge cut off, so the road is known to leave the board but not by which of S, SE or SW. S was chosen arbitrarily; nothing in play depends on it, since the hex beyond is off the map either way."
   }
 }

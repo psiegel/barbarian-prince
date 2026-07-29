@@ -107,9 +107,12 @@ def check_edges(hexes: dict[str, dict]) -> tuple[dict, dict, list[str], list[str
 
     `crossed` is a third case and a much sharper one: both hexes agree an edge
     is there and disagree about what it is, one saying river and the other road.
-    Nothing on the map looks like that, so it is always a mark entered in the
-    wrong block of six columns, and it says which hex to correct rather than
-    only that something is wrong.
+
+    A hexside carrying both is legitimate - it is a bridge, and r205d names the
+    one between 1318 and 1319 - but a bridge is recorded as river AND road on
+    BOTH hexes, so it mirrors cleanly and never lands here. Reaching this case
+    means one hex knows about only half of it, which is either an x in the wrong
+    block of six columns or a bridge that only one side recorded fully.
     """
     skipped: dict[tuple[str, str], list] = {}
     contradicted: dict[tuple[str, str], list] = {}
@@ -130,11 +133,108 @@ def check_edges(hexes: dict[str, dict]) -> tuple[dict, dict, list[str], list[str
                     if kind == "river":      # report the pair once, not twice
                         crossed.append(
                             f"{hid} {edge} / {other} {back} is the same hexside, "
-                            f"but {hid} calls it a river and {other} a road")
+                            f"but {hid} calls it a river and {other} a road - one "
+                            f"of them is in the wrong column block, unless it is a "
+                            f"bridge, in which case both need both")
                 else:
                     bucket = contradicted if hexes[other][kind] else skipped
                     bucket.setdefault((other, kind), []).append((back, hid))
     return skipped, contradicted, crossed, offboard
+
+
+ORDER = ("N", "NE", "SE", "S", "SW", "NW")   # clockwise, for walking vertices
+
+
+def _linked(hexes: dict[str, dict], a: str, b: str, kind: str) -> bool:
+    if a not in hexes or b not in hexes:
+        return False
+    for d, h in play.neighbours(*play.parse_hex(a)).items():
+        if h == b:
+            return d in hexes[a][kind]
+    return False
+
+
+def check_rivers(hexes: dict[str, dict]) -> tuple[list[str], int]:
+    """Rivers are continuous, so one must not stop in the middle of the map.
+
+    This is the check that mirroring cannot do. Agreeing about an edge only
+    proves the two rows were transcribed the same way; it says nothing about a
+    segment left out of both. Continuity is independent evidence, and it is the
+    only test here with any power against a symmetric omission.
+
+    Three hexes meet at every vertex, and so do the three edges between them. A
+    river arriving at a vertex has to leave by one of the other two, so a vertex
+    with exactly one river edge is a river that stops - fine at the mapboard rim
+    or against a swamp, where the water drains into the marsh rather than
+    running on, and suspicious anywhere else.
+    """
+    vertices = set()
+    for hid in hexes:
+        nb = play.neighbours(*play.parse_hex(hid))
+        for i, d1 in enumerate(ORDER):
+            d2 = ORDER[(i + 1) % 6]
+            if d1 in nb and d2 in nb:
+                vertices.add(frozenset((hid, nb[d1], nb[d2])))
+    interior, at_rim = [], 0
+    for tri in sorted(vertices, key=sorted):
+        a, b, c = sorted(tri)
+        live = [p for p in ((a, b), (b, c), (a, c)) if _linked(hexes, *p, "river")]
+        if len(live) != 1:
+            continue
+        drains = any("swamp" in hexes[h]["terrain"] for h in tri if h in hexes)
+        if any(h not in hexes for h in tri) or drains:
+            at_rim += 1
+        else:
+            interior.append(f"the river between {live[0][0]} and {live[0][1]} stops "
+                            f"dead at the vertex they share with "
+                            f"{sorted(tri - set(live[0]))[0]}")
+    return interior, at_rim
+
+
+def check_roads(hexes: dict[str, dict]) -> list[str]:
+    """Roads join places, so a road should not trail off into open country.
+
+    Unlike a river a road crosses hexsides rather than running along them, so it
+    chains centre to centre and the vertex test above does not apply. What does
+    apply: a road ending in a hex with nothing in it is either a spur the
+    transcription cut short, or a segment missing further on.
+    """
+    adj: dict[str, set[str]] = {h: set() for h in hexes}
+    leaves_map: set[str] = set()
+    for hid in hexes:
+        nb = play.neighbours(*play.parse_hex(hid))
+        for d in hexes[hid]["road"]:
+            other = nb.get(d)
+            if other in hexes:
+                adj[hid].add(other)
+                adj[other].add(hid)
+            else:
+                leaves_map.add(hid)   # runs off the board, not a dead end
+    out = []
+    for hid in sorted(hexes):
+        if (len(adj[hid]) == 1 and not hexes[hid]["features"]
+                and hid not in leaves_map):
+            out.append(f"the road into {hid} ends there, and {hid} has no town, "
+                       f"temple, castle or ruins to end at")
+    # A stretch of road connecting fewer than two places is not doing a road's
+    # job, and usually means the segment joining it to the network is missing.
+    seen: set[str] = set()
+    for hid in sorted(hexes):
+        if hid in seen or not adj[hid]:
+            continue
+        comp, stack = set(), [hid]
+        while stack:
+            x = stack.pop()
+            if x not in comp:
+                comp.add(x)
+                stack += [y for y in adj[x] if y not in comp]
+        seen |= comp
+        places = [h for h in sorted(comp) if hexes[h]["features"]]
+        if len(places) < 2:
+            named = ", ".join(f"{h} ({hexes[h].get('name', '?')})" for h in places)
+            out.append(f"the {len(comp)}-hex road network at {min(comp)}-{max(comp)} "
+                       f"reaches {named or 'nowhere at all'} and joins no other road")
+    return out
 
 
 def mirror(hexes: dict[str, dict], skipped: dict, fixes_path: Path) -> int:
@@ -301,6 +401,28 @@ def main(argv: list[str]) -> int:
         f"{', '.join(e for e, _ in sorted(claims))} edge(s), but "
         f"{', '.join(sorted(h for _, h in claims))} say(s) it should"
         for (hid, kind), claims in sorted({**skipped, **contradicted}.items())] + crossed
+    river_breaks, rim = check_rivers(hexes)
+    road_breaks = check_roads(hexes)
+
+    # Findings already checked against the map stay in the output, but demoted -
+    # a list you have to re-read the same nine lines of is a list you stop
+    # reading, and the next real defect hides in it. They are separated here
+    # rather than at print time so that what map.json calls a problem is only
+    # ever an open one.
+    confirmed = fixes.get("confirmed", {})
+    n_offboard = len(offboard)      # a stat, not a finding - count them all
+
+    def demote(items: list[str]) -> tuple[list[str], list[tuple[str, str]]]:
+        keep = [w for w in items if not any(k in w for k in confirmed)]
+        return keep, [(w, note) for w in items
+                      for key, note in confirmed.items() if key in w]
+
+    warnings, known = demote(warnings)
+    edge_problems, k1 = demote(edge_problems)
+    river_breaks, k2 = demote(river_breaks)
+    road_breaks, k3 = demote(road_breaks)
+    offboard, k4 = demote(offboard)
+    known += k1 + k2 + k3 + k4
 
     payload = {
         "_comment": ("Generated by tools/extract_map.py from data/map-data.csv, a "
@@ -313,6 +435,8 @@ def main(argv: list[str]) -> int:
         "hexes": hexes,
         "warnings": warnings,
         "edge_conflicts": edge_problems,
+        "continuity": river_breaks + road_breaks,
+        "confirmed": {w: note for w, note in known},
     }
     (DATA / "map.json").write_text(json.dumps(payload, indent=2) + "\n")
 
@@ -322,16 +446,12 @@ def main(argv: list[str]) -> int:
     print(f"hexes:    {len(hexes)} across {len(cols)} columns")
     print(f"features: {feats}")
     print(f"edges:    {rivers} river marks, {roads} road marks "
-          f"({len(offboard)} leaving the mapboard)")
+          f"({n_offboard} leaving the mapboard)")
+    print(f"joins:    every river runs on to the next hex or the rim "
+          f"({rim} reach the rim)" if not river_breaks else
+          f"joins:    {len(river_breaks)} river(s) stop mid-map, {rim} reach the rim")
     print(f"fixed:    {sum(1 for h in hexes.values() if h.get('corrected'))} "
           f"from map-fixes.json")
-    # Findings already checked against the map stay in the output, but demoted -
-    # a list you have to re-read the same three lines of is a list you stop
-    # reading, and the next real defect hides in it.
-    confirmed = fixes.get("confirmed", {})
-    known = [(w, note) for w in warnings
-             for key, note in confirmed.items() if key in w]
-    warnings = [w for w in warnings if not any(k in w for k in confirmed)]
     if warnings:
         print(f"\n{len(warnings)} thing(s) to look at:")
         for w in warnings:
@@ -339,7 +459,7 @@ def main(argv: list[str]) -> int:
     if known:
         print(f"\n{len(known)} checked against the map already:")
         for w, note in known:
-            print(f"  - {w.split(':')[0]}: {note}")
+            print(f"  - {w.split(':')[0].strip()}: {note}")
     if crossed:
         print(f"\n{len(crossed)} hexside(s) recorded as a river on one side and a "
               f"road on the other - an x in the wrong block of columns:")
@@ -363,6 +483,11 @@ def main(argv: list[str]) -> int:
             says = ", ".join(sorted(h for _, h in claims))
             print(f"  - {hid}: has {kind} {hexes[hid][kind]} but {says} say(s) "
                   f"it also needs {edges}")
+    if river_breaks or road_breaks:
+        print(f"\n{len(river_breaks) + len(road_breaks)} break(s) in the river and "
+              f"road networks - these are what mirroring cannot find:")
+        for p in river_breaks + road_breaks:
+            print(f"  - {p}")
     if offboard:
         print(f"\n{len(offboard)} edge(s) run off the mapboard - expected where a "
               f"river or road leaves the map, otherwise a stray mark:")
