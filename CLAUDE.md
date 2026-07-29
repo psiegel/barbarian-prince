@@ -296,6 +296,11 @@ setup is in `docs/local-tts.md`.
 Offer to speak sections, but don't do it on every lookup unless the player asks —
 in a text conversation they can usually just read it.
 
+**"Read aloud" vs "look up".** When a step or instruction says "read ... aloud", use
+`./bp speak <id>` (or `speak --text-only` when you want plain text instead of audio).
+When it says "look up", "show", or just names a section id, `./bp show` is fine.
+`show` prints prose; `speak` plays voice. Use whichever the instruction says.
+
 ## Regenerating
 
 `python3 tools/extract.py` rebuilds `data/sections.json`, `data/tables.json` and

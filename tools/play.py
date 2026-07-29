@@ -340,8 +340,11 @@ def setup_steps(book) -> list[dict]:
             if "#" in s["read"]:
                 # One passage of a section that pauses mid-page: the reading comes
                 # first, and `resolve` is what to run once they have answered.
+                # Passage anchors (e.g. e001#premise) are prose the AI should narrate —
+                # use --text-only so it gets the normalized text without playing audio
+                # in every step where speaking is a side-effect of "read aloud".
                 step["notes"].insert(0, f"read this passage aloud, then stop: "
-                                        f"bp show {s['read']}")
+                                        f"bp speak --text-only {s['read']}")
             else:
                 step["resolve"] = step["resolve"] or f"bp show {s['read']}"
         if s.get("fixed"):
