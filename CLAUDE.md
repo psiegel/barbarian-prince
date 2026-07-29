@@ -16,29 +16,40 @@ take it at face value — don't second-guess their sheet.
 
 ### What you can and cannot see of the map
 
-**You have:** terrain and features for all 463 hexes, and the geometry. Use hex ids
-directly — `./bp hex 1017`, `./bp move 1017 1118`, `./bp day 0101` — and the
-terrain, the town/temple/castle/ruins, adjacency and compass direction are all
-looked up for you. `move` refuses a move between non-adjacent hexes, which catches
-a mis-stated hex before any dice are rolled.
+**You have:** terrain and features for all 460 hexes, the rivers and roads on
+every hexside, and the geometry. Use hex ids directly — `./bp hex 1017`,
+`./bp move 1017 1118`, `./bp day 0101` — and the terrain, the
+town/temple/castle/ruins, adjacency, compass direction, river crossings, roads
+and bridges are all looked up for you. `move` refuses a move between
+non-adjacent hexes, which catches a mis-stated hex before any dice are rolled.
 
-**You do not have rivers or roads.** They live on *hexsides*, and the map data is
-per-hex. So before any move, still **ask, and never infer**:
+**You also have rivers and roads.** They live on *hexsides* rather than in hexes,
+so they are recorded on both hexes sharing the edge and `bp` reads them for you.
+`./bp move 1017 1118` knows there is a river to cross; `./bp hex 1017` marks
+which of the six neighbours lie across a river, a road, or a bridge. **Do not ask
+the player about rivers or roads between two hex ids, and do not pass `--river`
+or `--road` on a hunch** — unset means "read it off the map", and a flag
+overrides the map, which `move` will say out loud.
 
-- **whether a river runs on the hexside between those two hexes**
-- whether they are leaving by road
+Rivers sit on hexsides, not in hexes, so "am I in a river hex" is still not the
+question — "is there a river on the edge I'm about to cross" is. `move` answers
+that itself, and prints where each answer came from.
+
+What you must still **ask, and never infer**:
+
 - whether the whole party is mounted, and whether they are flying or short-hopping
 - whether they have a guide
+- which terrain applies in the seven hexes that straddle two (`bp` refuses and
+  names them)
 
-Rivers sit on hexsides, not in hexes, so "am I in a river hex" is not the question —
-"is there a river on the edge I'm about to cross" is. Ask it that way. If the player
-asks "is there a river between 1017 and 1118", say you can't see it and they'll have
-to look. Guessing a hexside is how a party gets swept downriver by a table that
-should never have been rolled.
+If the player says the map shows something different from the data, believe them
+and pass `--river/--no-river` or `--road/--no-road`; the data is a transcription
+and they are looking at the board. Then mention it's worth fixing in the
+spreadsheet.
 
-From `r213`, without the map: the Tragoth flows east–west, the Nesser north–south
-with the Dienstal Branch feeding it from the marsh, and the Largos runs from the
-marsh northeast off the board. Geography, not coordinates.
+From `r213`: the Tragoth flows east–west, the Nesser north–south with the
+Dienstal Branch feeding it from the marsh, and the Largos runs from the marsh
+northeast off the board. Geography, not coordinates.
 
 **A few hexes are genuinely uncertain** — the map data is a third-party
 transcription, and `tools/extract_map.py` prints what it disagrees with the
@@ -52,8 +63,8 @@ The PDFs are slow and lossy to read. Everything is extracted into `data/`:
 ```
 ./bp start               # the setup sequence for a new game, in order
 ./bp day 0101            # today's actions + the end-of-day checks (r203)
-./bp hex 1017            # terrain, feature and the six neighbours
-./bp move 1017 1118 --river      # the ordered travel checks for one hex
+./bp hex 1017            # terrain, feature, six neighbours, rivers and roads
+./bp move 1017 1118      # the ordered travel checks for one hex
 ./bp options e003        # choices + dice for a section, WITHOUT the outcomes
 ./bp resolve e003 evade 4  # apply a choice and roll, print what it leads to
 ./bp show r203 e001      # print sections (accepts several at once)
@@ -184,17 +195,22 @@ roll, then `./bp resolve r208 7`.
 Travel is not an encounter and does not go through `options`/`resolve`. It is a
 fixed sequence of 2d6 gates, and **`./bp move <from> <to>` prints that sequence**
 — which checks happen, in what order, against which threshold. Run it at the
-start of every move and follow the steps it gives you. Flags: `--river`,
-`--road`, `--airborne`, `--guide`.
+start of every move and follow the steps it gives you.
 
-Pass hex ids when you have them (`./bp move 1017 1118`) — terrain and direction
-are then looked up, not asked for. The flags are the part the map data can't
-supply, so get those from the player (see "What you can and cannot see of the map"
-above). `move` echoes back which assumptions it used; if the player corrects one,
-re-run it rather than patching the plan in your head.
+Pass hex ids when you have them (`./bp move 1017 1118`) — terrain, direction,
+rivers, roads and bridges are then all looked up rather than asked for. The two
+flags left for you are the ones no map can answer: `--airborne` and `--guide`.
+`--river/--no-river` and `--road/--no-road` exist only to override the map when
+the player says it is wrong, or to supply what is unknowable when the move is
+given as bare terrain names (`./bp move hills forest --river`).
+
+`move` ends by printing where every answer came from — "from the map data", "from
+what you were told", or "you overrode the map, which says yes". Read that footer.
+If it says a fact came from you and you invented it, re-run instead of carrying on.
 
 ```sh
-./bp move hills forest --river --guide   # the plan: 6 steps, in order
+./bp move 1017 1118 --guide              # the plan: 6 steps, in order
+./bp move hills forest --river --guide   # same, when you have no hex ids
 ./bp travel "cross river" --lost 9 --guide   # step 1: 9-1=8, and 8+ is lost
 ./bp travel "cross river" --event 11     # step 3: 10+, so an event fires
 ./bp travel "cross river" 2              # step 3: their 1d6 -> r265, a second table

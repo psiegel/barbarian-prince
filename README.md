@@ -108,8 +108,8 @@ permission, plus voices-read if you want to list voices. Free accounts can only 
 ```sh
 ./bp start                 # the setup sequence for a new game
 ./bp day 0101              # today's actions, and the end-of-day checks
-./bp hex 1017              # terrain, feature and the six adjacent hexes
-./bp move 1017 1118 --river      # the ordered checks for one hex of travel
+./bp hex 1017              # terrain, feature, adjacent hexes, rivers and roads
+./bp move 1017 1118        # the ordered checks for one hex of travel
 ./bp options e003          # the choices and dice for a section, without the outcomes
 ./bp resolve e003 evade 4  # apply a choice and roll, print what it leads to
 ./bp show r203 e001        # print sections

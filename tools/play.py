@@ -100,8 +100,46 @@ def direction_between(a: str, b: str) -> str | None:
     return None
 
 
+OPPOSITE_EDGE = {"N": "S", "S": "N", "NE": "SW", "SW": "NE", "NW": "SE", "SE": "NW"}
+
+
 def hex_entry(book, hid: str) -> dict | None:
     return (book.map or {}).get("hexes", {}).get(hid)
+
+
+def hexside(book, a: str, b: str) -> dict[str, bool]:
+    """Is there a river or a road on the hexside between two adjacent hexes?
+
+    A river runs along an edge and a road crosses one, so both belong to the
+    boundary rather than to either hex, and the map data records each of them
+    twice - once from either side. tools/extract_map.py refuses to let the two
+    copies disagree, so in practice either one answers the question. Read both
+    anyway: if they ever do disagree, a river check that silently does not
+    happen is a rule quietly not applied for the rest of the game, and the only
+    safe answer is to stop and ask.
+    """
+    ea, eb = hex_entry(book, a), hex_entry(book, b)
+    if ea is None or eb is None:
+        missing = a if ea is None else b
+        raise Refuse(f"no map data for hex {missing}, so the hexside between {a} "
+                     f"and {b} cannot be looked up. Ask the player, and pass "
+                     f"--river/--no-river and --road/--no-road.")
+    d = direction_between(a, b)
+    if d is None:
+        raise Refuse(f"{a} and {b} do not share a hexside.")
+    back = OPPOSITE_EDGE[d]
+    out: dict[str, bool] = {}
+    for kind in ("river", "road"):
+        mine, theirs = d in ea.get(kind, []), back in eb.get(kind, [])
+        if mine != theirs:
+            says_yes, says_no = (a, b) if mine else (b, a)
+            raise Refuse(
+                f"the map data contradicts itself about the {kind} between {a} "
+                f"and {b}: {says_yes} records one on that edge and {says_no} does "
+                f"not. Do not guess - ask the player what the map shows, pass "
+                f"--{kind}/--no-{kind}, and fix data/map-data.csv.")
+        out[kind] = mine
+    return out
 
 
 def hex_terrain(book, hid: str) -> str:
@@ -376,9 +414,16 @@ def cmd_hex(book, args) -> int:
     for d, h in neighbours(x, y).items():
         known = hex_entry(book, h)
         detail = describe_hex(book, h)[0].split(": ", 1)[1] if known else "off-map"
-        print(f"  {d:<2} {h}  {detail}")
-    print("\nRivers and roads are not in the map data - whether one lies on any of "
-          "these hexsides has to come from the player.")
+        # The hexside matters more than the hex when planning a move, so say what
+        # is on it: a river is a crossing check, a road cancels the lost check and
+        # bridges the river underneath it (r205b, r205d).
+        on_edge = [k for k in ("river", "road") if d in (entry.get(k) or [])]
+        edge = f"  [{' + '.join(on_edge)}]" if on_edge else ""
+        if len(on_edge) == 2:
+            edge += " bridge"
+        print(f"  {d:<2} {h}  {detail}{edge}")
+    print("\nRivers and roads shown above are on the hexside, so they apply to that "
+          "move in either direction. bp move reads them itself.")
     return 0
 
 
@@ -535,46 +580,96 @@ def cmd_move(book, args) -> int:
         frm = terrain_key(book, args.frm)
         to = terrain_key(book, args.to)
     except Refuse as e:
-        print(e, file=sys.stderr)
+        # Terrain can be ambiguous where the hexside is not - a straddle hex
+        # still has a perfectly definite river on it. Say so, so the answer is
+        # not lost when the caller comes back with the terrain named by hand.
+        extra = ""
+        if HEX_RE.match(args.frm.strip()) and HEX_RE.match(args.to.strip()):
+            try:
+                found = hexside(book, args.frm.strip(), args.to.strip())
+                on = [k for k in ("river", "road") if found[k]]
+                extra = ("\nThe hexside itself is not in doubt: "
+                         + (" and ".join(on) + " on that edge" if on
+                            else "no river and no road on that edge")
+                         + ". bp move will read that itself once the terrain is "
+                           "settled - re-run with the hex ids and name the terrain "
+                           "only if it still refuses.")
+            except Refuse:
+                pass
+        print(f"{e}{extra}", file=sys.stderr)
         return 1
     if args.airborne and args.road:
         print("pick one of --road or --airborne", file=sys.stderr)
         return 1
-    steps, tail = plan_move(book, frm, to, args)
+
     a = book.travel["terrain"][frm]["name"]
     b = book.travel["terrain"][to]["name"]
-    how = " by road" if args.road else " flying" if args.airborne else ""
-    how += ", over a river" if args.river else ""
+    label_a, label_b = a, b
+    direction = None
+    source = {}          # what each answer came from, for the footer
 
     # When both ends are hex ids the geometry is checkable, so check it: a move
     # between non-adjacent hexes is a mistake worth catching before any dice.
-    label_a, label_b = a, b
-    if HEX_RE.match(args.frm.strip()) and HEX_RE.match(args.to.strip()):
+    hexish = HEX_RE.match(args.frm.strip()) and HEX_RE.match(args.to.strip())
+    if hexish:
         h1, h2 = args.frm.strip(), args.to.strip()
         label_a, label_b = f"{h1} ({a})", f"{h2} ({b})"
-        d = direction_between(h1, h2)
-        if d:
-            how = f" {d}{how}"
-        elif not args.airborne:
+        direction = direction_between(h1, h2)
+        if direction is None and not args.airborne:
             print(f"{h1} and {h2} are not adjacent. You can't skip or jump a hex "
                   f"(r204). Adjacent to {h1}: "
                   f"{', '.join(f'{k} {v}' for k, v in neighbours(*parse_hex(h1)).items())}",
                   file=sys.stderr)
             return 1
 
+        # Rivers and roads are on the hexside, and the map data knows them. Only
+        # look them up where they are actually knowable - between two adjacent
+        # hexes - and let an explicit flag win, since the player is looking at
+        # the board and this data is a transcription of it.
+        if direction:
+            try:
+                found = hexside(book, h1, h2)
+                for kind in ("river", "road"):
+                    if getattr(args, kind) is None:
+                        setattr(args, kind, found[kind])
+                        source[kind] = "map"
+                    elif getattr(args, kind) != found[kind]:
+                        source[kind] = ("you overrode the map, which says "
+                                        f"{'yes' if found[kind] else 'no'}")
+                    else:
+                        source[kind] = "you said so, and the map agrees"
+            except Refuse as e:
+                print(f"{e}\n", file=sys.stderr)
+
+    for kind in ("river", "road"):
+        if getattr(args, kind) is None:
+            setattr(args, kind, False)
+
+    steps, tail = plan_move(book, frm, to, args)
+    how = " by road" if args.road else " flying" if args.airborne else ""
+    how += ", over a river" if args.river else ""
+    if direction:
+        how = f" {direction}{how}"
+    if args.road and args.river:
+        how += " on a bridge"
+
     show_steps(f"Move: {label_a} -> {label_b}{how}", steps, tail)
 
-    # The map data has terrain and features but no rivers or roads - those live on
-    # hexsides. Everything above still rests on facts only the player can see, and
-    # a wrong one silently produces a plausible, wrong plan.
-    print("\nThis plan assumes, from what you were told:")
+    known = source.get("river") == "map" and source.get("road") == "map"
+    print("\nThis plan rests on:" if known else "\nThis plan assumes:")
     print(f"  leaving {label_a}, entering {label_b}")
-    print(f"  river on the hexside between them: {'yes' if args.river else 'NO'}")
-    print(f"  leaving by road: {'yes' if args.road else 'NO'}")
-    print(f"  flying, not short-hopping: {'yes' if args.airborne else 'NO'}")
-    if not (args.river or args.road or args.airborne):
-        print("  If any of those is wrong, the plan is wrong - check the map "
-              "before you roll.")
+    for kind, label in (("river", "river on the hexside between them"),
+                        ("road", "leaving by road")):
+        got = "yes" if getattr(args, kind) else "NO"
+        why = source.get(kind)
+        note = (" - from the map data" if why == "map"
+                else f" - {why}" if why else " - from what you were told")
+        print(f"  {label}: {got}{note}")
+    print(f"  flying, not short-hopping: {'yes' if args.airborne else 'NO'} "
+          f"- from what you were told")
+    if not known:
+        print("  Anything not read from the map is a fact only the player can "
+              "see, and a wrong one silently produces a plausible, wrong plan.")
     print("\nStop after each check and let the player roll. Do not read the "
           "outcomes ahead of them.")
     return 0

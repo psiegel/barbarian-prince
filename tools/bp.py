@@ -3,7 +3,7 @@
 
   bp start                 how to begin a game: the setup sequence, in order
   bp day town              the actions available today, and the end-of-day checks
-  bp move hills forest     the ordered travel checks for one hex of movement
+  bp move 1017 1118        the ordered travel checks for one hex of movement
   bp show r203 e001        print one or more sections
   bp search "food"         full-text search
   bp travel forest         travel table row for a terrain
@@ -762,8 +762,13 @@ def main() -> int:
     s = sub.add_parser("move", help="the ordered checks for one hex of travel (r204/r205)")
     s.add_argument("frm", metavar="from", help="hex id or terrain you are leaving")
     s.add_argument("to", help="hex id or terrain you are entering")
-    s.add_argument("--river", action="store_true", help="the move crosses a river (r204e)")
-    s.add_argument("--road", action="store_true", help="leaving by road (r204c)")
+    # Tri-state: unset means "read it off the map", which is what happens whenever
+    # both ends are hex ids. The flags are for overriding that, or for supplying
+    # what the map cannot when the move is given as bare terrain names.
+    s.add_argument("--river", default=None, action=argparse.BooleanOptionalAction,
+                   help="override the map on whether a river is crossed (r204e)")
+    s.add_argument("--road", default=None, action=argparse.BooleanOptionalAction,
+                   help="override the map on whether you leave by road (r204c)")
     s.add_argument("--airborne", action="store_true", help="flying, not short-hopping (r204d)")
     s.add_argument("--guide", action="store_true", help="party includes a guide (r205a)")
     s.set_defaults(fn=play.cmd_move)
