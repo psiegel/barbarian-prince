@@ -1,0 +1,464 @@
+{
+  "_readme": [
+    "How many of them there are. Hand-written and tracked, like errata.json: this",
+    "is commentary on the extracted text, not extracted content, so extract.py",
+    "never touches it.",
+    "",
+    "Each entry rewrites one sentence of a section so the band already has a size:",
+    "  group    key the count is filed under in the save file",
+    "  noun     what to call them out loud",
+    "  dice     number of d6 rolled; add/div/min applied in that order (div rounds up)",
+    "  find     a phrase from the extracted body; whitespace-tolerant, so the",
+    "           booklet's hard line wrapping does not matter. If it stops matching,",
+    "           bp says so and reads the sentence as printed rather than guessing.",
+    "  replace  the rewrite, with {n} for the count",
+    "  one      the rewrite when the count is exactly 1, and noun_one to match.",
+    "           Required whenever the dice can produce a 1: `bp encounter check`",
+    "           refuses the file otherwise, because 'There are 1 in the patrol' is",
+    "           how a narrator learns to stop trusting the tool.",
+    "  foes     what to put on the sheet: count is n, n-1, or a fixed number",
+    "  then     a line of guidance printed under the count, when it is not a fight",
+    "  reading  an interpretation of ambiguous 1981 wording, recorded so it can be argued with",
+    "",
+    "Creature counts only. Wounds suffered (e016, e023, e091, e111, e119, r215, r227),",
+    "days lost (e035, e045, e160), hexes blown off course (e105, e110), bribe gold",
+    "(e148) and food units (e083) are consequences the player rolls for themselves,",
+    "and they stay exactly as printed.",
+    "",
+    "Deliberately not here: e006's roll-of-5 branch and r210's henchmen row put the",
+    "count inside a die-roll table row, which `bp resolve` prints rather than",
+    "`bp show`, so a rewrite of the body would never be seen. e013's horses for sale",
+    "are goods, not creatures, and its 'roll again' has no anchorable subject."
+  ],
+  "e002": [
+    {
+      "group": "guardsmen",
+      "noun": "mercenary guardsmen",
+      "dice": 1,
+      "find": "Roll one die for the number of men, each of which has combat skill 5, endurance 4, wealth 4.",
+      "replace": "There are {n} of them, each of which has combat skill 5, endurance 4, wealth 4.",
+      "one": "There is just one of them, with combat skill 5, endurance 4, wealth 4.",
+      "noun_one": "mercenary guardsman",
+      "foes": [
+        {
+          "name": "Guardsman",
+          "cs": 5,
+          "end": 4,
+          "wealth": 4,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e004": [
+    {
+      "group": "troopers",
+      "noun": "mercenary troopers",
+      "dice": 1,
+      "find": "Roll one die for the number of men with him, each having combat skill 5, endurance 4, wealth 4.",
+      "replace": "There are {n} men with him, each having combat skill 5, endurance 4, wealth 4.",
+      "one": "There is a single man with him, of combat skill 5, endurance 4, wealth 4.",
+      "noun_one": "mercenary trooper",
+      "foes": [
+        {
+          "name": "Mercenary Leader",
+          "cs": 6,
+          "end": 6,
+          "wealth": 50,
+          "count": 1
+        },
+        {
+          "name": "Trooper",
+          "cs": 5,
+          "end": 4,
+          "wealth": 4,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e005": [
+    {
+      "group": "amazons",
+      "noun": "Amazon warriors",
+      "dice": 1,
+      "add": 1,
+      "find": "The number in the group is one die roll plus one (+1).",
+      "replace": "There are {n} in the group.",
+      "foes": [
+        {
+          "name": "Amazon",
+          "cs": 6,
+          "end": 5,
+          "wealth": 4,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e021": [
+    {
+      "group": "monks",
+      "noun": "warrior monks",
+      "dice": 2,
+      "div": 2,
+      "find": "Roll two dice and halve the total (rounding fractions up) for the number in the group.",
+      "replace": "There are {n} in the group.",
+      "one": "There is only one of them.",
+      "noun_one": "warrior monk",
+      "foes": [
+        {
+          "name": "Monk",
+          "cs": 6,
+          "end": 6,
+          "wealth": 10,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e032": [
+    {
+      "group": "ghosts",
+      "noun": "ghosts",
+      "dice": 1,
+      "add": 1,
+      "find": "roll one die and add one (+1) for the number of ghosts, each of which is combat value 4, endurance 2.",
+      "replace": "there are {n} of them, each of which is combat value 4, endurance 2.",
+      "foes": [
+        {
+          "name": "Ghost",
+          "cs": 4,
+          "end": 2,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e033": [
+    {
+      "group": "wraiths",
+      "noun": "warrior wraiths",
+      "dice": 1,
+      "min": 2,
+      "find": "Roll one die for the number of wraiths, which is always two or more (die roll of one is considered two instead).",
+      "replace": "There are {n} wraiths.",
+      "foes": [
+        {
+          "name": "Wraith",
+          "cs": 6,
+          "end": 9,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e052": [
+    {
+      "group": "goblins",
+      "noun": "goblins",
+      "dice": 2,
+      "find": "You sight a band of Goblins in the distance. Roll two dice for the number in the band, each is combat skill 3, endurance 3, wealth 1.",
+      "replace": "You sight a band of {n} Goblins in the distance, each is combat skill 3, endurance 3, wealth 1.",
+      "foes": [
+        {
+          "name": "Goblin",
+          "cs": 3,
+          "end": 3,
+          "wealth": 1,
+          "count": "n"
+        },
+        {
+          "name": "Hobgoblin",
+          "cs": 6,
+          "end": 5,
+          "wealth": 5,
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "e054": [
+    {
+      "group": "goblins",
+      "noun": "goblins",
+      "dice": 3,
+      "reading": "\"roll one die three times\" is totalled as 3d6, the way e075 asks for three dice for the wolves",
+      "find": "If you fight, roll one die three times for the number of Goblins, each is combat skill 3, endurance 3, and wealth 1.",
+      "replace": "If you fight, there are {n} Goblins, each is combat skill 3, endurance 3, and wealth 1.",
+      "foes": [
+        {
+          "name": "Goblin",
+          "cs": 3,
+          "end": 3,
+          "wealth": 1,
+          "count": "n"
+        },
+        {
+          "name": "Hobgoblin Leader",
+          "cs": 6,
+          "end": 5,
+          "wealth": 4,
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "e055": [
+    {
+      "group": "orcs",
+      "noun": "orcs",
+      "dice": 2,
+      "find": "You sight a band of Orcs in the distance. Roll two dice for the number in the band.",
+      "replace": "You sight a band of {n} Orcs in the distance.",
+      "foes": [
+        {
+          "name": "Orc Chieftain",
+          "cs": 5,
+          "end": 6,
+          "wealth": 7,
+          "count": 1
+        },
+        {
+          "name": "Orc",
+          "cs": 4,
+          "end": 5,
+          "wealth": 1,
+          "count": "n-1"
+        }
+      ]
+    }
+  ],
+  "e056": [
+    {
+      "group": "orcs",
+      "noun": "orcs in the patrol",
+      "dice": 1,
+      "add": 1,
+      "find": "Roll one die and add one (+1) for the number of Orcs in the patrol also, each has combat skill 5, endurance 5, wealth 2.",
+      "replace": "There are {n} Orcs in the patrol also, each has combat skill 5, endurance 5, wealth 2.",
+      "foes": [
+        {
+          "name": "demi-Troll",
+          "cs": 8,
+          "end": 7,
+          "wealth": 10,
+          "count": 1
+        },
+        {
+          "name": "Orc",
+          "cs": 5,
+          "end": 5,
+          "wealth": 2,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e058": [
+    {
+      "group": "dwarves",
+      "noun": "dwarves",
+      "dice": 1,
+      "add": 1,
+      "find": "Roll one die and add one (+1) for the number of dwarves in the band.",
+      "replace": "There are {n} dwarves in the band.",
+      "foes": [
+        {
+          "name": "Dwarf",
+          "cs": 5,
+          "end": 6,
+          "wealth": 10,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e071": [
+    {
+      "group": "elves",
+      "noun": "elves",
+      "dice": 1,
+      "add": 1,
+      "find": "Roll one die and add one (+1) for the number of elves in the band.",
+      "replace": "There are {n} elves in the band.",
+      "foes": [
+        {
+          "name": "Elf",
+          "cs": 5,
+          "end": 4,
+          "wealth": 7,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e074": [
+    {
+      "group": "spiders",
+      "noun": "giant spiders",
+      "dice": 1,
+      "find": "Giant spiders trap you, roll one die for the number of spiders.",
+      "replace": "{n} giant spiders trap you.",
+      "one": "A single giant spider traps you.",
+      "noun_one": "giant spider",
+      "foes": [
+        {
+          "name": "Spider",
+          "cs": 4,
+          "end": 3,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e075": [
+    {
+      "group": "wolves",
+      "noun": "wolves",
+      "dice": 3,
+      "find": "Roll three dice for the number of wolves, each of which is combat skill 3, endurance 3.",
+      "replace": "There are {n} wolves, each of which is combat skill 3, endurance 3.",
+      "foes": [
+        {
+          "name": "Wolf",
+          "cs": 3,
+          "end": 3,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e081": [
+    {
+      "group": "patrol",
+      "noun": "soldiers in the patrol",
+      "dice": 1,
+      "find": "Roll one die for the number in the patrol, each of which is combat skill 6, endurance 5, wealth 4.",
+      "replace": "There are {n} in the patrol, each of which is combat skill 6, endurance 5, wealth 4.",
+      "one": "There is only one man in the patrol, of combat skill 6, endurance 5, wealth 4.",
+      "noun_one": "soldier in the patrol",
+      "foes": [
+        {
+          "name": "Patrol Leader",
+          "cs": 6,
+          "end": 5,
+          "wealth": 10,
+          "count": 1
+        },
+        {
+          "name": "Soldier",
+          "cs": 6,
+          "end": 5,
+          "wealth": 4,
+          "count": "n-1"
+        }
+      ]
+    }
+  ],
+  "e094": [
+    {
+      "group": "crocs",
+      "noun": "crocodiles",
+      "dice": 1,
+      "find": "Roll one die for the number of \"crocs,\" each of which is combat skill 4, endurance 6.",
+      "replace": "There are {n} of them, each of which is combat skill 4, endurance 6.",
+      "one": "There is only one of them, of combat skill 4, endurance 6.",
+      "noun_one": "crocodile",
+      "foes": [
+        {
+          "name": "Croc",
+          "cs": 4,
+          "end": 6,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e108": [
+    {
+      "group": "hawkmen",
+      "noun": "hawkmen",
+      "dice": 1,
+      "find": "Roll one die for the number of hawkmen, each is combat skill 7, endurance 5, wealth 7.",
+      "replace": "There are {n} of them, each is combat skill 7, endurance 5, wealth 7.",
+      "one": "There is only one of them, of combat skill 7, endurance 5, wealth 7.",
+      "noun_one": "hawkman",
+      "foes": [
+        {
+          "name": "Hawkman",
+          "cs": 7,
+          "end": 5,
+          "wealth": 7,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e112": [
+    {
+      "group": "eagles",
+      "noun": "eagles",
+      "dice": 1,
+      "find": "While airborne you encounter eagles in flight, roll one die for the number of eagles. Each is combat skill 4, endurance 3, and wealth 1.",
+      "replace": "While airborne you encounter {n} eagles in flight. Each is combat skill 4, endurance 3, and wealth 1.",
+      "one": "While airborne you encounter a lone eagle in flight, of combat skill 4, endurance 3, and wealth 1.",
+      "noun_one": "eagle",
+      "foes": [
+        {
+          "name": "Eagle",
+          "cs": 4,
+          "end": 3,
+          "wealth": 1,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e117": [
+    {
+      "group": "eagles",
+      "noun": "eagles in the warrior band",
+      "dice": 2,
+      "find": "Roll two dice for the number of eagles in the warrior band, each is combat skill 4, endurance 3.",
+      "replace": "There are {n} eagles in the warrior band, each is combat skill 4, endurance 3.",
+      "then": "these join the party rather than fight it: bp party add Eagle1 --cs 4 --end 3 --winged --guide, once per eagle, with a distinct name each"
+    }
+  ],
+  "e130": [
+    {
+      "group": "bodyguard",
+      "noun": "guards",
+      "dice": 2,
+      "add": 1,
+      "find": "The Lord has a bodyguard, roll two dice and add one (+1) for the number of guards, each of which is combat skill 6, endurance 6.",
+      "replace": "The Lord has a bodyguard of {n} guards, each of which is combat skill 6, endurance 6.",
+      "foes": [
+        {
+          "name": "Guard",
+          "cs": 6,
+          "end": 6,
+          "count": "n"
+        }
+      ]
+    }
+  ],
+  "e144": [
+    {
+      "group": "guards",
+      "noun": "guards of the heir",
+      "dice": 3,
+      "add": 1,
+      "find": "roll three dice and add one (+1) for the number of guards, each of which is combat skill 4, endurance 5.",
+      "replace": "there are {n} guards, each of which is combat skill 4, endurance 5.",
+      "foes": [
+        {
+          "name": "Guard",
+          "cs": 4,
+          "end": 5,
+          "count": "n"
+        }
+      ]
+    }
+  ]
+}

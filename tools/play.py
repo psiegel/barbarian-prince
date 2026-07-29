@@ -49,6 +49,17 @@ class Refuse(Exception):
     """A lookup that must fail loudly rather than guess."""
 
 
+def anchor(body: str, phrase: str) -> re.Match | None:
+    """Find a quoted phrase in a section body. pdftotext hard-wraps prose, so a
+    phrase from the booklet may have a newline anywhere a space is.
+
+    Lives here rather than in bp.py because both the part-splitting in bp.py and
+    the creature-count rewrites in creatures.py anchor on booklet phrasing, and
+    both must fail the same way when a re-extraction moves the words.
+    """
+    return re.search(r"\s+".join(re.escape(w) for w in phrase.split()), body)
+
+
 # --- hex geometry ---------------------------------------------------------
 #
 # Hexes are XXYY, origin top-left at 0101, flat-topped, laid out in vertical

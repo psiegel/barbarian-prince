@@ -86,6 +86,7 @@ The PDFs are slow and lossy to read. Everything is extracted into `data/`:
 ./bp roll 2d6            # dice, only when the player asks you to roll
 ./bp list e              # every event id and title
 ./bp speak e001          # read a section aloud (see Voice below)
+./bp encounter           # how many of them there are, once it has been read out
 ```
 
 And the character sheet — this game's numbers, not the booklet's:
@@ -104,6 +105,8 @@ And the character sheet — this game's numbers, not the booklet's:
 ./bp pay                 # the day's wages to hired followers (r333)
 ./bp lodge               # rooms and stables for the night (r217)
 ./bp foe add Dwarf --cs 6 --end 7 --wealth 3   # enemies, for this fight only
+./bp encounter set e052 goblins 5   # the player's own count for a band
+./bp encounter clear     # the encounter is over; forget the counts
 ```
 
 Four families, and each has a protocol below: `start`/`day`/`move` sequence the
@@ -113,7 +116,8 @@ machine-readable table behind them, so prefer `resolve` over reading columns out
 of `show`, which is easy to misread.
 
 **Every die roll in this game resolves through `bp`.** If you find yourself
-recalling what a table says, stop and run the command instead — the travel table
+recalling what a table says, stop and run the command instead — including how many
+of them there are, which `bp` rolls itself; see "How many of them there are" below — the travel table
 in particular is a trap, because it looks memorable and isn't. Sections `r265`
 and `e265` are different things and only one of them exists.
 
@@ -207,8 +211,9 @@ load capacity from the count. Mounts recover from all starvation on one meal;
 men recover a day at a time (`r216b`).
 
 **Enemies are temporary.** `./bp foe add <name> --cs <n> --end <n> --wealth <n>`
-when a fight starts (`--count 3` for three of the same), `./bp foe wound <name>
-+2` as strikes land, `./bp foe clear` when it ends — which prints the wealth codes
+when a fight starts (`--count 3` for three of the same — and for a band whose size
+came off a die, that number is the one `bp` printed when the section was read out;
+see "How many of them there are"), `./bp foe wound <name> +2` as strikes land, `./bp foe clear` when it ends — which prints the wealth codes
 of the dead so the treasure roll doesn't get forgotten (`r225`). Foes are the only
 thing on the sheet that is meant to be thrown away; leaving them there makes
 `./bp game` claim a fight is still going.
@@ -216,6 +221,40 @@ thing on the sheet that is meant to be thrown away; leaving them there makes
 **The rolls are still the player's.** These commands record outcomes and print
 the rule that applies; they never roll the desertion die, the loyalty die or the
 treasure die for anyone. When one is needed, `bp` says so — ask, wait, then record.
+
+## How many of them there are
+
+Two dozen sections name their enemies but leave the size of the band to a die —
+"You sight a band of Goblins in the distance. Roll two dice for the number in the
+band." **You do not ask for that roll, and you never pick the number yourself.**
+`bp` rolls it once and reads the sentence with the number already in it:
+
+> You sight a band of 8 Goblins in the distance, each is combat skill 3, endurance
+> 3, wealth 1.
+
+That happens in `show`, `speak`, `options`, `travel` and the follow-on section
+`resolve` prints, so the count is the same wherever the party met them. Underneath
+the prose, `bp` prints the count, the dice that produced it, and the `bp foe add`
+line to go with it — run that line as printed. Do not retype the number from
+memory: `bp foe add` **refuses** a count that disagrees with what was read out, and
+that refusal is the tool catching you, not a bug to work around.
+
+- The count is filed against the day and hex it was rolled for. A new day or a new
+  hex is a new band, rolled fresh. Within one day in one hex, every re-read says
+  the same thing.
+- `./bp encounter` lists what has been counted; `./bp encounter clear` when an
+  encounter ends without a fight (`bp foe clear` already does it when one ends
+  with a fight).
+- If the player rolled it themselves, or says the number is wrong, they are the
+  authority: `./bp encounter set e052 goblins 5`, then re-read the section.
+- With no game being tracked there is nowhere to record a number, so the sentence
+  is read as the booklet prints it and `bp` says why. Start the game first.
+- Only creature counts work this way. Wounds suffered, days lost wandering, hexes
+  blown off course, the gold a bribe costs — those are the player's own rolls, are
+  printed as the booklet prints them, and you ask for them normally.
+
+If `bp` reports that a rewrite no longer matches the section text, say so and read
+the sentence as printed; `./bp encounter check` verifies all of them at once.
 
 ## Sections that withhold their last paragraph
 

@@ -30,6 +30,7 @@ the character sheet - the numbers this game is played with, kept in saves/:
   bp pay                   the day's wages to hired followers (r333)
   bp lodge                 rooms and stables for the night (r217)
   bp foe add Dwarf --cs 6 --end 7 --wealth 3  enemies, for this fight only
+  bp encounter             how many of them there are, once it has been read out
 """
 
 import argparse
@@ -46,6 +47,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import creatures
 import play
 import state
 
@@ -174,8 +176,14 @@ class Book:
         return "\n".join(lines)
 
     def fmt_section(self, sec: dict, note: str | None = None) -> str:
-        """So play.py can print a section without importing this module back."""
-        return fmt(sec, note)
+        """So play.py can print a section without importing this module back.
+
+        Band sizes are substituted here too: a section is a section however the
+        reader arrived at it, and an event reached through the treasure table must
+        not read differently from the same event reached through `bp show`.
+        """
+        sec, counts = creatures.apply(sec)
+        return "\n".join([fmt(sec, note), *([""] + counts if counts else [])])
 
     def incoming(self, sid: str) -> list[str]:
         sid = self.normalize(sid)
@@ -206,12 +214,6 @@ class Book:
         return slice_part(sec, self.parts(sid), name)
 
 
-def anchor(body: str, phrase: str) -> re.Match | None:
-    """Find a quoted anchor in a section body. pdftotext hard-wraps prose, so a
-    phrase from the booklet may have a newline anywhere a space is."""
-    return re.search(r"\s+".join(re.escape(w) for w in phrase.split()), body)
-
-
 def slice_part(sec: dict, parts: list[dict], name: str) -> dict:
     """Cut one named passage out of a section body, refusing rather than
     guessing if an anchor no longer matches the extracted text."""
@@ -227,7 +229,7 @@ def slice_part(sec: dict, parts: list[dict], name: str) -> dict:
 
     start = 0
     if p.get("from"):
-        m = anchor(body, p["from"])
+        m = play.anchor(body, p["from"])
         if not m:
             raise LookupError(
                 f"{sid}#{name}: the opening anchor {p['from']!r} is not in the "
@@ -236,7 +238,7 @@ def slice_part(sec: dict, parts: list[dict], name: str) -> dict:
         start = m.start()
     end = len(body)
     if p.get("until"):
-        m = anchor(body, p["until"])
+        m = play.anchor(body, p["until"])
         if not m:
             raise LookupError(
                 f"{sid}#{name}: the closing anchor {p['until']!r} is not in the "
@@ -538,7 +540,9 @@ def cmd_show(book: Book, args) -> int:
             print(e, file=sys.stderr)
             rc = 1
             continue
+        sec, counts = creatures.apply(sec, raw=args.raw)
         print(fmt(sec, note))
+        creatures.show_notes(counts)
     return rc
 
 
@@ -620,7 +624,7 @@ def cmd_travel(book: Book, args) -> int:
         sec = book.get(ref)
         if sec:
             print()
-            print(fmt(sec))
+            print(book.fmt_section(sec))
         return 0
 
     rolls = book.travel["refs"][ref]
@@ -637,7 +641,7 @@ def cmd_travel(book: Book, args) -> int:
         print(book.why_missing(target) or f"{target} not found", file=sys.stderr)
         return 1
     print()
-    print(fmt(sec, note))
+    print(book.fmt_section(sec, note))
     return 0
 
 
@@ -707,9 +711,14 @@ def cmd_options(book: Book, args) -> int:
         return 0
 
     print(f"{sid} {sec['title']}")
+    # Substitute into the intro rather than the whole body: the anchors sit in the
+    # prose above the table, and rewriting the body first could move a part anchor.
+    intro, counts = creatures.apply_text(sid, intro_text(sec, table, parts),
+                                         raw=args.raw, partial=True)
     if not args.quiet:
         print()
-        print(intro_text(sec, table, parts))
+        print(intro)
+    creatures.show_notes(counts)
     print()
 
     if table["kind"] == "options":
@@ -823,8 +832,10 @@ def cmd_resolve(book: Book, args) -> int:
     if args.no_follow:
         print(f"-> {target} {nxt['title']}")
         return 0
+    nxt, counts = creatures.apply(nxt)
     print()
     print(fmt(nxt, tnote))
+    creatures.show_notes(counts)
     return 0
 
 
@@ -875,6 +886,10 @@ def cmd_speak(book: Book, args) -> int:
         return 1
     if note:
         print(f"[errata] {note}", file=sys.stderr)
+    # The band already has a size by the time it is read out, and the notes go to
+    # stderr so the count is never spoken as an aside to the player.
+    sec, counts = creatures.apply(sec, raw=args.raw)
+    creatures.show_notes(counts, sys.stderr)
     if args.text_only:
         print(to_speech(sec))
         return 0
@@ -886,10 +901,16 @@ def main() -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    def raw_flag(s):
+        s.add_argument("--raw", action="store_true",
+                       help="read band sizes as the booklet prints them, without "
+                            "substituting the count rolled for this encounter")
+
     s = sub.add_parser("show", help="print sections, or one passage: e001#caravan")
     s.add_argument("ids", nargs="+")
     s.add_argument("--parts", action="store_true",
                    help="list the passages a section is read in, without the text")
+    raw_flag(s)
     s.set_defaults(fn=cmd_show)
 
     s = sub.add_parser("search", help="full-text search")
@@ -953,6 +974,7 @@ def main() -> int:
     s = sub.add_parser("options", help="what to choose and roll, without spoilers")
     s.add_argument("id")
     s.add_argument("-q", "--quiet", action="store_true", help="omit the intro prose")
+    raw_flag(s)
     s.set_defaults(fn=cmd_options)
 
     s = sub.add_parser("resolve", help="apply a choice and die roll, then follow on")
@@ -982,7 +1004,12 @@ def main() -> int:
                    help="TTS backend (default: $BP_TTS, else auto)")
     s.add_argument("--save", action="store_true", help="keep the audio in audio/")
     s.add_argument("--text-only", action="store_true", help="print speech text, don't play")
+    raw_flag(s)
     s.set_defaults(fn=cmd_speak)
+
+    # bp encounter - the band sizes rolled for what is happening right now, which
+    # are recorded so that what is read aloud and what reaches the sheet agree.
+    creatures.register(sub)
 
     # game, time, food, gold, party, eat, starve, lodge, foe - the recorded state
     # of one playthrough, rather than what the booklet says. Registered from

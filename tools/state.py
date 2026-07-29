@@ -116,6 +116,74 @@ def note(g: dict, what: str) -> None:
     del g["log"][:-300]
 
 
+# --- encounters: the band sizes that were read out loud -------------------
+#
+# Several sections leave the size of a band to a die (creatures.py rewrites the
+# sentence with the number already in it). The number has to survive between
+# commands, or `bp speak` says eight goblins and `bp foe add` records three - so
+# it is filed here, against the day and hex it was rolled for. A different day or
+# a different hex is a different band, and is rolled again.
+
+
+def encounters(g: dict) -> dict:
+    return g.get("encounters") or {}
+
+
+def encounter_get(g: dict, sid: str, group: str) -> dict | None:
+    return encounters(g).get(sid, {}).get(group)
+
+
+def encounter_stale(g: dict, rec: dict) -> bool:
+    """A band counted yesterday, or in another hex, is not this band."""
+    return rec.get("day") != g["day"] or rec.get("hex") != g.get("hex")
+
+
+def encounter_set(g: dict, sid: str, group: str, n: int, noun: str,
+                  how: str, foes: dict[str, int] | None = None) -> dict:
+    rec = {"n": n, "noun": noun, "how": how, "day": g["day"], "hex": g.get("hex")}
+    if foes:
+        # What the band comes to on the sheet, so foe add can cross-check it.
+        rec["foes"] = foes
+    g.setdefault("encounters", {}).setdefault(sid, {})[group] = rec
+    note(g, f"{sid}: {n} {noun} ({how})")
+    return rec
+
+
+def encounter_clear(g: dict, sid: str | None = None) -> int:
+    """Forget counts once the encounter is done. Returns how many went."""
+    book = g.get("encounters") or {}
+    if sid is None:
+        gone = sum(len(v) for v in book.values())
+        g["encounters"] = {}
+    else:
+        gone = len(book.get(sid, {}))
+        book.pop(sid, None)
+    return gone
+
+
+def count_warning(g: dict, name: str, count: int) -> str | None:
+    """Is the sheet about to disagree with a number already read out?
+
+    Matched on the enemy names the count was recorded with, not on the prose, so
+    the one Hobgoblin leading a band of eight goblins is checked against one and
+    not against eight.
+    """
+    want = name.strip().lower().rstrip("s")
+    for sid, groups in encounters(g).items():
+        for group, rec in groups.items():
+            for foe, expect in (rec.get("foes") or {}).items():
+                if foe.lower().rstrip("s") != want or expect == count:
+                    continue
+                return (f"{rec['n']} {rec.get('noun', group)} were read out for "
+                        f"{sid} (day {rec['day']}, hex {rec.get('hex')}), which is "
+                        f"{expect} x {foe} - and this would put {count} on the sheet. "
+                        f"Nothing was changed. Use --count {expect} to match what "
+                        f"the player was told, or `bp encounter set {sid} {group} "
+                        f"<n>` first if the count itself is wrong - but do not let "
+                        f"the sheet and the story disagree.")
+    return None
+
+
 # --- characters -----------------------------------------------------------
 
 
@@ -399,6 +467,15 @@ def sheet(g: dict, brief: bool = False) -> str:
         upkeep.append(f"{wages(g)} gold in wages")
     out.append("daily upkeep: " + ", ".join(upkeep) + "  (r215, r210)")
 
+    live = [(sid, group, rec)
+            for sid, groups in sorted(encounters(g).items())
+            for group, rec in sorted(groups.items())
+            if not encounter_stale(g, rec)]
+    if live:
+        out.append("\nband sizes read out today (bp encounter):")
+        for sid, group, rec in live:
+            out.append(f"  {sid} {group}: {rec['n']} {rec.get('noun', '')}")
+
     if g.get("foes"):
         out.append(f"\nCOMBAT IN PROGRESS - "
                    f"{plural(len(g['foes']), 'enemy', 'enemies')} on the sheet. bp foe")
@@ -480,6 +557,7 @@ def cmd_game_new(book, args) -> int:
             "hex": args.hex,
             "party": [prince],
             "foes": [],
+            "encounters": {},
             "notes": [],
             "log": [],
         }
@@ -1076,6 +1154,9 @@ def cmd_foe(book, args) -> int:
 def cmd_foe_add(book, args) -> int:
     try:
         g = load_game(args)
+        clash = count_warning(g, args.name, args.count)
+        if clash:
+            raise Refuse(clash)
         added = []
         for i in range(args.count):
             name = args.name if args.count == 1 else f"{args.name} {i + 1}"
@@ -1131,12 +1212,17 @@ def cmd_foe_clear(book, args) -> int:
         killed = [f for f in foes if f["end"] and f["wounds"] >= f["end"]]
         loot = [f for f in killed if f["wealth"]]
         g["foes"] = []
+        # The fight is over, so the band that was counted for it is over too.
+        counts = encounter_clear(g)
         note(g, f"combat ended: {len(killed)} of {len(foes)} killed")
         write_game(g)
     except Refuse as e:
         print(e, file=sys.stderr)
         return 1
     print(f"combat cleared - {len(killed)} of {len(foes)} enemies killed.")
+    if counts:
+        print(f"({plural(counts, 'creature count')} forgotten too - the next band "
+              f"of the same kind is rolled fresh.)")
     if loot and not args.no_loot:
         print("\nBefore they are forgotten, the dead carry wealth (r225):")
         for f in loot:
