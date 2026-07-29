@@ -1,14 +1,87 @@
 {
   "_comment": "Hand-maintained, like errata.json. Not overwritten by tools/extract.py. Encodes the *order* of the procedures the booklet describes in prose (r202-r205, r215-r217) so `bp start`, `bp day` and `bp move` can walk them step by step instead of an LLM reassembling them from the text each turn. Every entry cites the section it comes from; nothing here restates game content that data/sections.json already holds.",
 
+  "readings": {
+    "_comment": "A few sections send the reader away and tell them to come back - e001 does it twice. Rather than read the whole section at once and lose the pauses the text itself asks for, `bp show <id>#<part>` prints one passage at a time. Anchors are quoted phrases from the body, matched whitespace-insensitively so the pdftotext line wrapping does not matter; if an anchor stops matching after a re-extraction, `bp` refuses rather than printing the wrong passage. No game text is copied here.",
+
+    "e001": [
+      {
+        "part": "premise",
+        "what": "The premise: the assassination, the 500 gold, the ten weeks.",
+        "until": "and then return to this event and read the paragraph below:",
+        "then": "The text itself stops here. Do r202 (wit & wiles) and the starting gold, then come back for e001#caravan."
+      },
+      {
+        "part": "caravan",
+        "what": "Where the caravan drops them.",
+        "from": "To escape the mercenary and royal guard",
+        "until": "6-hex 1801.",
+        "then": "Ask for 1d6, then bp start <die>. Reading the list of six destinations aloud is optional - the die picks one."
+      },
+      {
+        "part": "dawn",
+        "what": "Dawn on day 1, and the standing e002 warning.",
+        "from": "Now, at dawn you roll out of the merchant wagons",
+        "then": "Day 1 begins: bp day <hex type>."
+      }
+    ],
+
+    "_comment2": "e060, e068 and e105 are the other shape: a lettered tail paragraph (e060a, e068a, e105a) that only happens on some die results. It is written as prose rather than as a table row, so `options` used to print it as part of the setup and hand over an outcome the player had not rolled for. Splitting them makes the first part the pre-roll setup, which is all `options` shows.",
+
+    "e060": [
+      {
+        "part": "setup",
+        "what": "Arrested. Read this, then ask for 1d6 for the gravity of the offence.",
+        "until": "5,6-see next paragraph (e060a).",
+        "then": "1 or less-e061; 2-e062; 3,4-e063; 5,6-read e060#minor. e060 has no parsed table, so resolve it by reading this line, not with `bp resolve`."
+      },
+      {
+        "part": "minor",
+        "subid": "e060a",
+        "what": "Minor Offence - the 5,6 outcome. Do not read before the die.",
+        "from": "e060a Minor Offence"
+      }
+    ],
+
+    "e068": [
+      {
+        "part": "setup",
+        "what": "Wizard's Abode. Read this, then ask for 1d6.",
+        "until": "5,6-see e068a in the paragraph below:",
+        "then": "bp resolve e068 <die>. On 5,6 that is e068#tower."
+      },
+      {
+        "part": "tower",
+        "subid": "e068a",
+        "what": "Wizard Tower - the 5,6 outcome. Do not read before the die.",
+        "from": "e068a Wizard Tower"
+      }
+    ],
+
+    "e105": [
+      {
+        "part": "setup",
+        "what": "Storm Clouds Ahead. Read this, then ask for 1d6 if they fly on.",
+        "until": "6-see e105a below.",
+        "then": "bp resolve e105 <die>. On 6 that is e105#weather."
+      },
+      {
+        "part": "weather",
+        "subid": "e105a",
+        "what": "Violent Weather - the 6 outcome. Do not read before the die.",
+        "from": "e105a Violent Weather"
+      }
+    ]
+  },
+
   "setup": {
     "goal": "Collect 500 gold pieces and return to the Northlands within 10 weeks (70 days). Day 71 is a loss, and so is the Prince's death.",
     "steps": [
       {
         "id": "premise",
         "cite": "e001",
-        "read": "e001",
-        "prompt": "Read the opening. Stop before the caravan roll."
+        "read": "e001#premise",
+        "prompt": "Read the opening aloud. It ends by sending you to r202 - stop there."
       },
       {
         "id": "stats",
@@ -29,9 +102,16 @@
       {
         "id": "hex",
         "cite": "e001",
+        "read": "e001#caravan",
         "die": "1d6",
-        "prompt": "Roll 1d6 for where the caravan dropped them.",
+        "prompt": "Read the caravan paragraph, then ask where the caravan dropped them.",
         "resolve": "bp start <die>"
+      },
+      {
+        "id": "dawn",
+        "cite": "e001",
+        "read": "e001#dawn",
+        "prompt": "Read the closing paragraph: dawn in the ditch, and the standing e002 warning."
       },
       {
         "id": "day1",

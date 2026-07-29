@@ -5,6 +5,8 @@
   bp day town              the actions available today, and the end-of-day checks
   bp move 1017 1118        the ordered travel checks for one hex of movement
   bp show r203 e001        print one or more sections
+  bp show e001#caravan     print one passage of a section read in sittings
+  bp show e001 --parts     which passages a section has, and where each stops
   bp search "food"         full-text search
   bp travel forest         travel table row for a terrain
   bp travel forest 3       ...resolved for a die roll of 3
@@ -165,15 +167,107 @@ class Book:
         sid = self.normalize(sid)
         return sorted(k for k, v in self.sections.items() if sid in v["refs"])
 
+    def subid_part(self, sid: str, text: str) -> dict | None:
+        """The section's own tail paragraph, if an outcome points at it (e068a).
+
+        `\\b[re]\\d{3}\\b` does not match 'e068a' - the trailing letter is a word
+        character - so without this the follow-on search skips past the real
+        answer and lands on whatever rule the paragraph happens to mention."""
+        for p in self.parts(sid):
+            sub = p.get("subid")
+            if sub and re.search(rf"\b{re.escape(sub)}\b", text):
+                return p
+        return None
+
+    def parts(self, sid: str) -> list[dict]:
+        """The reading passages for a section that sends you away and back."""
+        readings = self.procedures.get("readings", {})
+        return [p for p in readings.get(self.normalize(sid), []) if "part" in p]
+
+    def part(self, sid: str, name: str) -> dict:
+        """One passage of a section, as a section-shaped dict."""
+        sec = self.get(self.normalize(sid))
+        if sec is None:
+            raise LookupError(self.why_missing(sid) or f"no section {sid}")
+        return slice_part(sec, self.parts(sid), name)
+
+
+def anchor(body: str, phrase: str) -> re.Match | None:
+    """Find a quoted anchor in a section body. pdftotext hard-wraps prose, so a
+    phrase from the booklet may have a newline anywhere a space is."""
+    return re.search(r"\s+".join(re.escape(w) for w in phrase.split()), body)
+
+
+def slice_part(sec: dict, parts: list[dict], name: str) -> dict:
+    """Cut one named passage out of a section body, refusing rather than
+    guessing if an anchor no longer matches the extracted text."""
+    sid = sec["id"]
+    if not parts:
+        raise LookupError(f"{sid} is not split into parts; use `bp show {sid}`")
+    names = [p["part"] for p in parts]
+    match = [p for p in parts if p["part"] == name]
+    if not match:
+        raise LookupError(f"{sid} has no part {name!r}. It has: {', '.join(names)}")
+    p = match[0]
+    body = sec["body"]
+
+    start = 0
+    if p.get("from"):
+        m = anchor(body, p["from"])
+        if not m:
+            raise LookupError(
+                f"{sid}#{name}: the opening anchor {p['from']!r} is not in the "
+                f"section text any more. data/procedures.json needs fixing; "
+                f"read the whole section with `bp show {sid}` meanwhile.")
+        start = m.start()
+    end = len(body)
+    if p.get("until"):
+        m = anchor(body, p["until"])
+        if not m:
+            raise LookupError(
+                f"{sid}#{name}: the closing anchor {p['until']!r} is not in the "
+                f"section text any more. data/procedures.json needs fixing; "
+                f"read the whole section with `bp show {sid}` meanwhile.")
+        end = m.end()
+
+    i = names.index(name)
+    return {
+        "id": f"{sid}#{name}",
+        "title": sec["title"],
+        # Only the first passage announces the title out loud; the later ones are
+        # a continuation of a section the player has already been read.
+        "speech_title": sec["title"] if i == 0 else "",
+        "source": sec["source"],
+        "body": body[start:end].strip(),
+        "refs": [],
+        "part": name,
+        "part_no": i + 1,
+        "part_count": len(parts),
+        "what": p.get("what"),
+        "then": p.get("then"),
+    }
+
+
+def split_id(raw: str) -> tuple[str, str | None]:
+    """`e001#caravan` -> ('e001', 'caravan')."""
+    sid, _, part = raw.partition("#")
+    return sid, (part or None)
+
 
 def fmt(sec: dict, note: str | None = None) -> str:
     head = f"{sec['id']} {sec['title']}"
+    if sec.get("part"):
+        head += f"  [part {sec['part_no']} of {sec['part_count']}]"
     out = [head, "=" * len(head)]
     if note:
         out += [f"[errata] {note}", ""]
+    if sec.get("what"):
+        out += [f"({sec['what']})", ""]
     out += [sec["body"]]
     if sec.get("refs"):
         out += ["", f"-> {' '.join(sec['refs'])}"]
+    if sec.get("then"):
+        out += ["", f"-> then: {sec['then']}"]
     return "\n".join(out)
 
 
@@ -211,7 +305,10 @@ def to_speech(sec: dict) -> str:
     chops sentences in half. Wrapped prose lines are rejoined with a space;
     only blank lines and table rows become spoken pauses.
     """
-    chunks: list[str] = [sec["title"].rstrip(".") + "."]
+    # A mid-section passage carries speech_title "" - it continues something the
+    # player has already heard announced, so re-reading the title jars.
+    title = sec.get("speech_title", sec["title"])
+    chunks: list[str] = [title.rstrip(".") + "."] if title else []
     prose: list[str] = []
 
     def flush():
@@ -379,7 +476,7 @@ def speak(sec: dict, voice: str | None, save: bool, backend: str | None = None) 
 
     audio, ext = result
     AUDIO.mkdir(exist_ok=True)
-    out = AUDIO / f"{sec['id']}.{ext}"
+    out = AUDIO / f"{sec['id'].replace('#', '-')}.{ext}"
     out.write_bytes(audio)
     rc = subprocess.run(["afplay", str(out)]).returncode
     if save:
@@ -391,16 +488,40 @@ def speak(sec: dict, voice: str | None, save: bool, backend: str | None = None) 
 
 # --- commands -------------------------------------------------------------
 
+def fetch(book: Book, raw: str) -> tuple[dict, str | None]:
+    """A section, or one passage of it if the id carries a #part."""
+    ref, part = split_id(raw)
+    sid, note = book.resolve(ref)
+    if part:
+        return book.part(sid, part), note
+    sec = book.get(sid)
+    if not sec:
+        raise LookupError(book.why_missing(sid) or f"no section {sid}")
+    return sec, note
+
+
 def cmd_show(book: Book, args) -> int:
     rc = 0
     for i, raw in enumerate(args.ids):
         if i:
             print("\n")
-        sid, note = book.resolve(raw)
-        sec = book.get(sid)
-        if not sec:
-            reason = book.why_missing(sid) or f"no section {sid}"
-            print(reason, file=sys.stderr)
+        if args.parts:
+            sid, _ = book.resolve(split_id(raw)[0])
+            parts = book.parts(sid)
+            if not parts:
+                print(f"{sid} is read in one go - it has no parts", file=sys.stderr)
+                rc = 1
+                continue
+            print(f"{sid} reads in {len(parts)} parts, in this order:")
+            for n, p in enumerate(parts, 1):
+                print(f"  {n}. {sid}#{p['part']:<9} {p.get('what', '')}")
+                if p.get("then"):
+                    print(f"     then: {p['then']}")
+            continue
+        try:
+            sec, note = fetch(book, raw)
+        except LookupError as e:
+            print(e, file=sys.stderr)
             rc = 1
             continue
         print(fmt(sec, note))
@@ -506,9 +627,23 @@ def cmd_travel(book: Book, args) -> int:
     return 0
 
 
-def intro_text(sec: dict, table: dict) -> str:
-    """The prose above a table - the setup to read out before asking to roll."""
+def intro_text(sec: dict, table: dict, parts: list[dict] | None = None) -> str:
+    """The prose above a table - the setup to read out before asking to roll.
+
+    Normally the outcomes are laid out as table rows, so cutting at the first row
+    is enough. e060/e068/e105 instead write one outcome as a trailing paragraph
+    (e068a and friends), which is prose and survives that cut - so a section split
+    into parts is truncated at the end of its first part as well.
+    """
     body = sec["body"]
+    if parts:
+        try:
+            body = slice_part(sec, parts, parts[0]["part"])["body"]
+        except LookupError as e:
+            # Falling back to the whole body silently would put the spoiler back
+            # without anyone noticing, so say it out loud instead.
+            print(f"[warning] {e}\n[warning] the text below may include an "
+                  f"outcome the player has not rolled for", file=sys.stderr)
     if table["kind"] == "options":
         cut = re.search(r"^\s*die\s+rolls?\b", body, re.M | re.I)
     else:
@@ -542,15 +677,25 @@ def cmd_options(book: Book, args) -> int:
         return 1
     if note:
         print(f"[errata] {note}")
+    parts = book.parts(sid)
     table = book.table(sid)
     if not table:
+        if parts:
+            # No parsed table, but the section still withholds a tail paragraph -
+            # sending the reader at the whole section would give it away.
+            print(f"{sid} {sec['title']}: no die-roll table. Read the setup and "
+                  f"resolve it by hand.")
+            print(f"  -> bp show {sid}#{parts[0]['part']}")
+            if parts[0].get("then"):
+                print(f"  then: {parts[0]['then']}")
+            return 0
         print(f"{sid} {sec['title']}: no die-roll table; just read the section.")
         return 0
 
     print(f"{sid} {sec['title']}")
     if not args.quiet:
         print()
-        print(intro_text(sec, table))
+        print(intro_text(sec, table, parts))
     print()
 
     if table["kind"] == "options":
@@ -626,7 +771,8 @@ def cmd_resolve(book: Book, args) -> int:
                   f"dash). available on that roll: {avail}", file=sys.stderr)
             return 1
         print(f"{sid} {key} on {roll}: {outcome}")
-        dest = re.search(r"\b([re]\d{3})\b", outcome)
+        own = book.subid_part(sid, outcome)
+        dest = None if own else re.search(r"\b([re]\d{3})\b", outcome)
     else:
         if table["kind"] == "table":
             sub = next(t for t in table["tables"]
@@ -643,8 +789,16 @@ def cmd_resolve(book: Book, args) -> int:
         named = key and key != "(unlabelled)" and table["kind"] == "table"
         label = f" [{key}]" if named else ""
         print(f"{sid}{label} on {roll}: {text}")
-        dest = re.search(r"\b([re]\d{3})\b", text)
+        own = book.subid_part(sid, text)
+        dest = None if own else re.search(r"\b([re]\d{3})\b", text)
 
+    if own:
+        # The outcome is this section's own tail paragraph. Any rule it cites is
+        # part of that outcome, not somewhere to jump next - and the table cell
+        # sometimes holds only the first line of it, so read the passage itself.
+        print(f"\n-> that is {own['subid']}, this section's own tail paragraph. "
+              f"Read it in full: bp show {sid}#{own['part']}")
+        return 0
     if not dest:
         return 0
     target, tnote = book.resolve(dest.group(1))
@@ -700,10 +854,10 @@ def cmd_list(book: Book, args) -> int:
 
 
 def cmd_speak(book: Book, args) -> int:
-    sid, note = book.resolve(args.id)
-    sec = book.get(sid)
-    if not sec:
-        print(book.why_missing(sid) or f"no section {sid}", file=sys.stderr)
+    try:
+        sec, note = fetch(book, args.id)
+    except LookupError as e:
+        print(e, file=sys.stderr)
         return 1
     if note:
         print(f"[errata] {note}", file=sys.stderr)
@@ -718,8 +872,10 @@ def main() -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("show", help="print sections")
+    s = sub.add_parser("show", help="print sections, or one passage: e001#caravan")
     s.add_argument("ids", nargs="+")
+    s.add_argument("--parts", action="store_true",
+                   help="list the passages a section is read in, without the text")
     s.set_defaults(fn=cmd_show)
 
     s = sub.add_parser("search", help="full-text search")
@@ -746,6 +902,8 @@ def main() -> int:
     s = sub.add_parser("start", help="how to begin a game (e001, r202, r225)")
     s.add_argument("roll", nargs="?", type=int, choices=range(1, 7),
                    help="the caravan die, once they roll it")
+    s.add_argument("--step", type=int, metavar="N",
+                   help="print only step N - one stop per message")
     s.set_defaults(fn=play.cmd_start)
 
     s = sub.add_parser("day", help="today's actions and the end-of-day checks (r203)")
@@ -804,7 +962,7 @@ def main() -> int:
     s.set_defaults(fn=cmd_list)
 
     s = sub.add_parser("speak", help="read a section aloud")
-    s.add_argument("id")
+    s.add_argument("id", help="a section id, or one passage: e001#premise")
     s.add_argument("--voice", help="voice id/name for the chosen backend")
     s.add_argument("--backend", choices=["auto", "kokoro", "elevenlabs", "say"],
                    help="TTS backend (default: $BP_TTS, else auto)")

@@ -310,11 +310,12 @@ def cmd_treasure(book, args) -> int:
 # --- step formatting ------------------------------------------------------
 
 
-def show_steps(title: str, steps: list[dict], tail: list[str] | None = None) -> None:
+def show_steps(title: str, steps: list[dict], tail: list[str] | None = None,
+               first: int = 1) -> None:
     """Print an ordered procedure. One line per thing the player must do."""
     print(title)
     print("=" * len(title))
-    for i, s in enumerate(steps, 1):
+    for i, s in enumerate(steps, first):
         cite = f"  ({s['cite']})" if s.get("cite") else ""
         print(f"\n{i}. {s['what']}{cite}")
         if s.get("die"):
@@ -330,6 +331,27 @@ def show_steps(title: str, steps: list[dict], tail: list[str] | None = None) -> 
 # --- bp start -------------------------------------------------------------
 
 
+def setup_steps(book) -> list[dict]:
+    steps = []
+    for s in book.procedures["setup"]["steps"]:
+        step = {"cite": s["cite"], "what": s["prompt"], "die": s.get("die"),
+                "notes": [], "resolve": s.get("resolve")}
+        if s.get("read"):
+            if "#" in s["read"]:
+                # One passage of a section that pauses mid-page: the reading comes
+                # first, and `resolve` is what to run once they have answered.
+                step["notes"].insert(0, f"read this passage aloud, then stop: "
+                                        f"bp show {s['read']}")
+            else:
+                step["resolve"] = step["resolve"] or f"bp show {s['read']}"
+        if s.get("fixed"):
+            step["notes"].append(f"fixed: {s['fixed']}")
+        if s.get("note"):
+            step["notes"].append(s["note"])
+        steps.append(step)
+    return steps
+
+
 def cmd_start(book, args) -> int:
     setup = book.procedures["setup"]
     if args.roll is not None:
@@ -338,22 +360,27 @@ def cmd_start(book, args) -> int:
             print(f"the caravan table is 1-6; got {args.roll}", file=sys.stderr)
             return 1
         print(f"e001 caravan on {args.roll}: you are in {where}")
-        print("\nDay 1 begins. Choose an action: bp day")
+        print("\nNow read the closing paragraph: bp show e001#dawn")
+        print("Then day 1 begins. Choose an action: bp day")
         return 0
 
-    steps = []
-    for s in setup["steps"]:
-        step = {"cite": s["cite"], "what": s["prompt"], "die": s.get("die"),
-                "notes": [], "resolve": s.get("resolve")}
-        if s.get("read"):
-            step["resolve"] = step["resolve"] or f"bp show {s['read']}"
-        if s.get("fixed"):
-            step["notes"].append(f"fixed: {s['fixed']}")
-        if s.get("note"):
-            step["notes"].append(s["note"])
-        steps.append(step)
+    steps = setup_steps(book)
+    if args.step is not None:
+        if not 1 <= args.step <= len(steps):
+            print(f"setup has steps 1-{len(steps)}; got {args.step}",
+                  file=sys.stderr)
+            return 1
+        s = steps[args.step - 1]
+        nxt = (f"Next: bp start --step {args.step + 1}"
+               if args.step < len(steps) else "That is the last setup step.")
+        show_steps(f"Setup step {args.step} of {len(steps)}", [s], [nxt],
+                   first=args.step)
+        return 0
+
     show_steps("Starting a game", steps,
-               [f"Goal: {setup['goal']}"] +
+               ["Take one step per message: read or ask, then wait. "
+                "`bp start --step N` prints a single step.",
+                f"Goal: {setup['goal']}"] +
                [f"Standing rule: {s}" for s in setup["standing"]])
     return 0
 

@@ -113,6 +113,7 @@ permission, plus voices-read if you want to list voices. Free accounts can only 
 ./bp options e003          # the choices and dice for a section, without the outcomes
 ./bp resolve e003 evade 4  # apply a choice and roll, print what it leads to
 ./bp show r203 e001        # print sections
+./bp show e001#premise     # one passage of a section that pauses mid-page
 ./bp search "lodging"      # full-text search
 ./bp travel forest 3 5     # travel table, resolved down to the event
 ./bp treasure 2 4          # the r226 wealth-code grid
@@ -133,6 +134,18 @@ checks spread across r204, r205 and r207, and `move` prints that order instead o
 leaving the AI to reassemble it — which is where wrong rulings come from.
 
 Start a game by asking the AI to start a new game, or run `./bp start` yourself.
+
+A couple of sections are written to be read in sittings — `e001` sends you off to
+`r202` and tells you to come back, then stops again for the caravan die. Those
+passages are named (`e001#premise`, `e001#caravan`, `e001#dawn`), so the AI reads
+one, asks for what it needs, and waits, instead of dumping the whole page and
+asking for three rolls at once. `./bp show e001 --parts` lists them; the split
+points live in `data/procedures.json` as quoted anchors, not as copied text.
+
+The same split does a second job in `e060`, `e068` and `e105`, which print an
+outcome paragraph (`e060a`, `e068a`, `e105a`) on the page below the die roll that
+selects it. `options` now stops before that paragraph, so the setup you hear is
+the setup, and the outcome waits for your dice.
 
 ## Layout
 

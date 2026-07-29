@@ -68,6 +68,8 @@ The PDFs are slow and lossy to read. Everything is extracted into `data/`:
 ./bp options e003        # choices + dice for a section, WITHOUT the outcomes
 ./bp resolve e003 evade 4  # apply a choice and roll, print what it leads to
 ./bp show r203 e001      # print sections (accepts several at once)
+./bp show e001#premise   # one passage of a section that pauses mid-page
+./bp show e001 --parts   # which passages it is read in, and where each stops
 ./bp search "lodging"    # full-text search when you don't know the number
 ./bp travel forest 3 5   # travel table row, resolved down to the actual event
 ./bp travel river --lost 9 --guide   # is that 2d6 a failure? modifiers applied
@@ -113,18 +115,46 @@ the r202–r205 and r215–r217 procedures that `start`, `day` and `move` walk t
 
 ## Starting a game
 
-When the player wants to begin, run `./bp start` and walk the five steps it
+When the player wants to begin, run `./bp start` and walk the six steps it
 prints. Don't improvise a character or a starting position — every number comes
 from a table:
 
-1. Read `e001` for the premise. 500 gold, ten weeks, the usurpers in the palace.
-   Stop before the caravan roll.
+1. Read `e001#premise` — the premise. 500 gold, ten weeks, the usurpers in the
+   palace. The passage ends where the text sends you to `r202`; stop there.
 2. `r202`: combat skill 8, endurance 9, wealth code 2 are **fixed** — the Prince
    is the same man every game. Ask for 1d6 for wit & wiles; a 1 counts as 2.
 3. Starting gold is wealth code 2 on the Treasure Table. Ask for 1d6, then
    `./bp treasure 2 <die>`. Don't read the grid yourself.
-4. Ask for 1d6 for where the caravan dropped them, then `./bp start <die>`.
-5. Day 1 begins — go to `./bp day`.
+4. Read `e001#caravan` — Ogab and the merchant wagons — then ask for 1d6 and run
+   `./bp start <die>`.
+5. Read `e001#dawn` — dawn in the ditch, and the standing `e002` warning.
+6. Day 1 begins — go to `./bp day`.
+
+**One step per message.** `e001` is written to be read in three sittings: it sends
+the reader to `r202` and says "return to this event", then stops again for the
+caravan die. Honour those pauses — read a passage, ask for what it needs, and
+wait. Don't read `e001` whole and then ask for three rolls at once, and don't
+paraphrase a passage you have already skipped ahead of. `./bp start --step N`
+prints a single step when you want to keep yourself honest, and every step names
+the `bp show e001#<part>` to read at it.
+
+## Sections that withhold their last paragraph
+
+`e060`, `e068` and `e105` each end with a lettered paragraph — `e060a` Minor
+Offence, `e068a` Wizard Tower, `e105a` Violent Weather — that only happens on
+certain die results. The booklet prints it right there on the page, so reading
+the section whole hands over an outcome the player has not rolled for.
+
+They are split like `e001`, so `./bp options <id>` shows only the pre-roll setup
+and stops. Read what `options` gives you, take the die, then `./bp resolve`. When
+the roll lands on the tail, `resolve` says so and names the passage to read —
+`bp show e068#tower` — rather than jumping somewhere else.
+
+`e060` has no machine-readable table, so `options` prints the setup passage and
+the outcome line to adjudicate by hand; `bp resolve e060` will refuse.
+
+`./bp show <id> --parts` says whether any section has passages, and `bp` refuses
+on an unknown part rather than showing the wrong text.
 
 **All six starting hexes are north of the Tragoth River.** `e001`'s "southern
 border" means the southern border of the *Northlands Kingdom* — the north edge of
@@ -270,7 +300,9 @@ wrong ruling costs the player their game.
 
 `./bp speak <id>` reads a section aloud, normalizing the text first ("r203" →
 "rule 203", table columns → commas). `--save` keeps the audio in `audio/`;
-`--text-only` prints the normalized text without playing it.
+`--text-only` prints the normalized text without playing it. It takes a passage
+too — `./bp speak e001#caravan` — and a mid-section passage doesn't re-announce
+the title, so the three parts of `e001` play as one continuous reading.
 
 Three backends, chosen automatically unless `BP_TTS` or `--backend` says otherwise:
 
