@@ -40,6 +40,7 @@ import json
 import os
 import re
 import random
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1027,7 +1028,8 @@ def _list(book: Book, args) -> int:
     return 0
 
 
-def cmd_say(book: Book, args) -> int:
+def cmd_say(book: Book, args) -> int:  # noqa: D401
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     """Read text aloud. There is no `bp speak <id>` any more: `bp show` already
     prints what a DM would say, so the Stop hook can speak the narration itself
     and the player hears exactly what is on screen."""

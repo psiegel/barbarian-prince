@@ -24,6 +24,7 @@ import json
 import os
 import queue
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -141,6 +142,11 @@ class Speaker:
     def __init__(self, enabled: bool = True):
         self.q: queue.Queue[str | None] = queue.Queue()
         self.enabled = enabled
+        # What is playing right now, so a player who has finished listening can
+        # cut it off. Guarded because the worker sets it and the main thread
+        # kills it.
+        self.playing: subprocess.Popen | None = None
+        self.lock = threading.Lock()
         self.worker = threading.Thread(target=self._run, daemon=True)
         self.worker.start()
 
@@ -150,11 +156,40 @@ class Speaker:
             if text is None:
                 return
             try:
-                subprocess.run([*BP, "say", "--stdin"], input=text, text=True,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               timeout=600)
+                # Its own session, so one signal reaches `bp say` and the afplay
+                # it spawned. Killing only the parent orphans the audio, which
+                # keeps talking over whatever comes next.
+                proc = subprocess.Popen(
+                    [*BP, "say", "--stdin"], stdin=subprocess.PIPE, text=True,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    start_new_session=True)
+                with self.lock:
+                    self.playing = proc
+                proc.communicate(text, timeout=600)
             except (OSError, subprocess.SubprocessError):
                 pass  # voice is a preference; never let it end the game
+            finally:
+                with self.lock:
+                    self.playing = None
+
+    def stop(self):
+        """Drop the backlog and cut off whatever is speaking.
+
+        Typing is the signal: the player has read ahead and is answering, so
+        anything still queued is describing a moment they have already left.
+        """
+        while True:
+            try:
+                self.q.get_nowait()
+            except queue.Empty:
+                break
+        with self.lock:
+            proc = self.playing
+        if proc and proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
 
     def say(self, text: str):
         # Blockquoted lines are never spoken. The model has no reason to quote
@@ -441,6 +476,7 @@ def run_dusk(speaker: Speaker, referee: bool) -> str | None:
         while True:
             try:
                 said = input(prompt).strip().lower()
+                speaker.stop()
             except EOFError:
                 return None
             if said in ("s", "south", "skip"):
@@ -710,6 +746,7 @@ def main() -> int:
         while True:
             try:
                 said = input(f"\n{ASIDE}> {RESET}").strip()
+                speaker.stop()
             except EOFError:
                 print()
                 break

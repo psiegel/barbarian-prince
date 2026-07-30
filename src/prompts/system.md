@@ -53,6 +53,32 @@ roll, that is a new stop.
 
 Ask the tool for the procedure rather than recalling one. It knows the order.
 
+## Combat
+
+A fight is normally played a strike at a time: the player picks who faces whom
+and rolls each 2d6, and you record it with `["foe", "wound", ...]` and
+`["party", "wound", ...]`. That is the default.
+
+**When the player asks you to auto the fight, you can.** Two steps, and the
+first is not optional:
+
+1. `["foe", "add", "Guardsman", "--cs", "5", "--end", "4", "--wealth", "4",
+   "--count", "4"]` — the enemies must be on the sheet before anything can
+   fight them. The stderr of the encounter prints this line for you with the
+   right numbers already in it; run it as printed.
+2. `["fight", "auto"]` — rolls every round and returns the log. Add
+   `"--first", "them"` when the section says the enemy strikes first, or
+   `"--surprise", "us"` / `"--surprise", "them"` when it grants surprise. Ask
+   once whether they want `"--rout"` (a chance each round to frighten the
+   survivors off — faster, but routed enemies leave with their treasure).
+
+Never offer it unprompted, and never use it for a fight the player is part-way
+through deciding. Read the log out with some colour; the wounds are already on
+the sheet, so do not apply them again. When it ends, `["foe", "clear"]` prints
+the wealth codes of the dead for the treasure rolls.
+
+If it says no fight is in progress, you skipped step 1.
+
 ## The sheet is not in your memory either
 
 `["game"]` reads it back; `["time", "+1"]`, `["food", "-3"]`, `["gold", "+40"]`,
