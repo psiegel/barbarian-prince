@@ -838,6 +838,11 @@ def cmd_options(book: Book, args) -> int:
         print()
     creatures.show_notes(counts, sys.stderr)
 
+    # The choices are bp's own rendering of the table's columns, not the book's
+    # words - "choice: negotiate, choice: evade, bracket asterisk if your party
+    # all winged mounts" is not a sentence anyone says. The narrator turns them
+    # into the question it asks, so they go to the referee's channel.
+    err = sys.stderr
     if table["kind"] == "options":
         for col in table["columns"]:
             mark = ""
@@ -846,20 +851,20 @@ def cmd_options(book: Book, args) -> int:
                 mark = f"   [{col['note']}] {fn}"
             elif col["note"]:
                 mark = f"   [{col['note']}] (marker printed with no footnote in the source)"
-            print(f"  choice: {col['name']}{mark}")
+            print(f"  choice: {col['name']}{mark}", file=err)
         if table.get("die_note"):
             fn = table["footnotes"].get(table["die_note"])
             if fn:
-                print(f"  die modifier [{table['die_note']}]: {fn}")
+                print(f"  die modifier [{table['die_note']}]: {fn}", file=err)
     elif table["kind"] == "table":
         for sub in table["tables"]:
             label = sub["label"] or "(unlabelled)"
-            print(f"  choice: {label}")
+            print(f"  choice: {label}", file=err)
             if sub.get("note"):
-                print(f"          {sub['note']}")
+                print(f"          {sub['note']}", file=err)
     else:
-        print("  no choice to make - just roll")
-    print(f"\n  then roll {table['die']}")
+        print("  no choice to make - just roll", file=err)
+    print(f"\n  then roll {table['die']}", file=err)
     return 0
 
 

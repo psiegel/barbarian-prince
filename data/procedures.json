@@ -1,9 +1,7 @@
 {
   "_comment": "Hand-maintained, like errata.json. Not overwritten by tools/extract.py. Encodes the *order* of the procedures the booklet describes in prose (r202-r205, r215-r217) so `bp start`, `bp day` and `bp move` can walk them step by step instead of an LLM reassembling them from the text each turn. Every entry cites the section it comes from; nothing here restates game content that data/sections.json already holds.",
-
   "readings": {
     "_comment": "A few sections send the reader away and tell them to come back - e001 does it twice. Rather than read the whole section at once and lose the pauses the text itself asks for, `bp show <id>#<part>` prints one passage at a time. Anchors are quoted phrases from the body, matched whitespace-insensitively so the pdftotext line wrapping does not matter; if an anchor stops matching after a re-extraction, `bp` refuses rather than printing the wrong passage. No game text is copied here.",
-
     "e001": [
       {
         "part": "premise",
@@ -25,9 +23,7 @@
         "then": "Day 1 begins: bp day <hex type>."
       }
     ],
-
     "_comment2": "e060, e068 and e105 are the other shape: a lettered tail paragraph (e060a, e068a, e105a) that only happens on some die results. It is written as prose rather than as a table row, so `options` used to print it as part of the setup and hand over an outcome the player had not rolled for. Splitting them makes the first part the pre-roll setup, which is all `options` shows.",
-
     "e060": [
       {
         "part": "setup",
@@ -42,7 +38,6 @@
         "from": "e060a Minor Offence"
       }
     ],
-
     "e068": [
       {
         "part": "setup",
@@ -57,7 +52,6 @@
         "from": "e068a Wizard Tower"
       }
     ],
-
     "e105": [
       {
         "part": "setup",
@@ -71,9 +65,17 @@
         "what": "Violent Weather - the 6 outcome. Do not read before the die.",
         "from": "e105a Violent Weather"
       }
+    ],
+    "_comment3": "e002's text opens with the die that decides whether the guardsmen appear at all. By the time the section is read out that roll has already been made, so the reading starts at the guardsmen themselves.",
+    "e002": [
+      {
+        "part": "guardsmen",
+        "from": "Mercenary thugs",
+        "what": "The guardsmen themselves; the trigger die is rolled before this.",
+        "then": "bp resolve e002 <choice> <1d6>."
+      }
     ]
   },
-
   "setup": {
     "goal": "Collect 500 gold pieces and return to the Northlands within 10 weeks (70 days). Day 71 is a loss, and so is the Prince's death.",
     "steps": [
@@ -141,33 +143,103 @@
       "Ogon (0101) and Weshor (1501) add +1 to the e002 roll, and both are starting hexes - the guard looks hardest for you in the towns you might have run to."
     ]
   },
-
   "day": {
     "cite": "r203",
     "actions": [
-      {"name": "rest",     "cite": "r222", "hexes": "any",
-       "note": "Heals one wound per character if no combat or escape happens. Still check for a travel event as if entering your own hex (r222), and rest improves hunting (r215)."},
-      {"name": "travel",   "cite": "r204", "hexes": "any",
-       "note": "The most common choice.", "resolve": "bp move <from> <to>"},
-      {"name": "search cache", "cite": "r214", "hexes": "any",
-       "note": "Only for a cache you previously placed."},
-      {"name": "seek news", "cite": "r209", "hexes": ["town", "castle", "temple"]},
-      {"name": "hire followers", "cite": "r210", "hexes": ["town", "castle"]},
-      {"name": "seek audience", "cite": "r211", "hexes": ["town", "castle", "temple"]},
-      {"name": "submit offering", "cite": "r212", "hexes": ["temple"]},
-      {"name": "search ruins", "cite": "r208", "hexes": ["ruins"]}
+      {
+        "name": "rest",
+        "cite": "r222",
+        "hexes": "any",
+        "note": "Heals one wound per character if no combat or escape happens. Still check for a travel event as if entering your own hex (r222), and rest improves hunting (r215)."
+      },
+      {
+        "name": "travel",
+        "cite": "r204",
+        "hexes": "any",
+        "note": "The most common choice.",
+        "resolve": "bp move <from> <to>"
+      },
+      {
+        "name": "search cache",
+        "cite": "r214",
+        "hexes": "any",
+        "note": "Only for a cache you previously placed."
+      },
+      {
+        "name": "seek news",
+        "cite": "r209",
+        "hexes": [
+          "town",
+          "castle",
+          "temple"
+        ]
+      },
+      {
+        "name": "hire followers",
+        "cite": "r210",
+        "hexes": [
+          "town",
+          "castle"
+        ]
+      },
+      {
+        "name": "seek audience",
+        "cite": "r211",
+        "hexes": [
+          "town",
+          "castle",
+          "temple"
+        ]
+      },
+      {
+        "name": "submit offering",
+        "cite": "r212",
+        "hexes": [
+          "temple"
+        ]
+      },
+      {
+        "name": "search ruins",
+        "cite": "r208",
+        "hexes": [
+          "ruins"
+        ]
+      }
     ],
     "endofday": [
-      {"cite": "e002", "what": "If the day ends north of the Tragoth River, check e002 now - after events, before the meal.", "when": "north"},
-      {"cite": "r215", "what": "Feed the whole party. Mounts need fodder in terrain where the travel table says fodder is no."},
-      {"cite": "r216", "what": "Anyone who cannot be fed starves - resolve r216."},
-      {"cite": "r333", "what": "Pay the day's wages to any hired follower at the meal - unpaid hirelings leave."},
-      {"cite": "r217", "what": "In a town, castle or temple, lodging must usually be bought.", "when": ["town", "castle", "temple"]},
-      {"cite": "r203", "what": "Advance the time track one day. The game is lost on day 71."}
+      {
+        "cite": "e002",
+        "what": "If the day ends north of the Tragoth River, check e002 now - after events, before the meal.",
+        "when": "north"
+      },
+      {
+        "cite": "r215",
+        "what": "Feed the whole party. Mounts need fodder in terrain where the travel table says fodder is no."
+      },
+      {
+        "cite": "r216",
+        "what": "Anyone who cannot be fed starves - resolve r216."
+      },
+      {
+        "cite": "r333",
+        "what": "Pay the day's wages to any hired follower at the meal - unpaid hirelings leave."
+      },
+      {
+        "cite": "r217",
+        "what": "In a town, castle or temple, lodging must usually be bought.",
+        "when": [
+          "town",
+          "castle",
+          "temple"
+        ]
+      },
+      {
+        "cite": "r203",
+        "what": "Advance the time track one day. The game is lost on day 71."
+      }
     ],
     "one_action_note": "One action per day, and the whole party does it. Some events grant a bonus action, others force the time track forward several days (r203)."
   },
-
   "move": {
     "cite": "r204",
     "lost_terrain_conflict": "r205 says the lost check uses the terrain you are LEAVING; r205d says the post-river check uses the terrain of the new hex you are ENTERING. Both are quoted as printed - the specific rule is used for the river step and the general rule elsewhere. Travel events always use the terrain ENTERED (r204b).",
