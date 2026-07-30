@@ -347,7 +347,8 @@ def run_setup(speaker: Speaker, referee: bool) -> str | None:
             if roll is None:
                 return None
             out = run_bp(["treasure", "2", str(roll)], speaker, referee)
-            m = TREASURE_OUT.search(json.loads(out)["stdout"].strip())
+            got = json.loads(out)
+            m = TREASURE_OUT.search((got["stdout"] + got["stderr"]).strip())
             gold = int(m.group(1)) if m else None
             if gold is None:
                 print(f"{ASIDE}  could not read the gold off the treasure "
@@ -358,7 +359,8 @@ def run_setup(speaker: Speaker, referee: bool) -> str | None:
             if roll is None:
                 return None
             out = run_bp(["start", str(roll)], speaker, referee)
-            m = HEX_IN.search(json.loads(out)["stdout"])
+            got = json.loads(out)
+            m = HEX_IN.search(got["stdout"] + got["stderr"])
             hexid = m.group(1) if m else None
 
         elif step["id"] == "record":

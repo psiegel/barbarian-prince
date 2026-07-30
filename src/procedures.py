@@ -296,16 +296,16 @@ def cmd_treasure(book, args) -> int:
               file=sys.stderr)
         return 1
     if args.roll is None:
-        print(f"r226 wealth code {code} - roll 1d6:")
+        print(f"r226 wealth code {code} - roll 1d6:", file=sys.stderr)
         for i, cell in enumerate(rows[code], 1):
-            print(f"  {i} -> {cell}")
+            print(f"  {i} -> {cell}", file=sys.stderr)
         return 0
     result = rows[code][args.roll - 1]
-    print(f"r226 wealth code {code} on {args.roll}: {result}")
+    print(f"r226 wealth code {code} on {args.roll}: {result}", file=sys.stderr)
     letter = re.search(r"\+([ABC])\b", result)
     if letter:
-        print(f"\n{POSSESSION_NOTE}")
-        print(f"  bp treasure {letter.group(1)} <die>")
+        print(f"\n{POSSESSION_NOTE}", file=sys.stderr)
+        print(f"  bp treasure {letter.group(1)} <die>", file=sys.stderr)
     ev = re.search(r"\b(e\d{3})\b", result)
     if ev:
         target, note = book.resolve(ev.group(1))
@@ -383,7 +383,8 @@ def cmd_start(book, args) -> int:
             return 1
         # Where the caravan left them is the player's to hear; what to run next
         # is the narrator's, and read aloud it is three commands in a row.
-        print(f"e001 caravan on {args.roll}: you are in {where}")
+        print(f"e001 caravan on {args.roll}: you are in {where}",
+              file=sys.stderr)
         print("\nNow read the closing paragraph: bp show e001#dawn",
               file=sys.stderr)
         print("Then write the sheet down before day 1: "
@@ -433,6 +434,12 @@ def describe_hex(book, hid: str) -> list[str]:
 
 
 def cmd_hex(book, args) -> int:
+    """Terrain, features and neighbours - map data for the narrator, not prose."""
+    with contextlib.redirect_stdout(sys.stderr):
+        return _hex(book, args)
+
+
+def _hex(book, args) -> int:
     try:
         x, y = parse_hex(args.id)
     except Refuse as e:

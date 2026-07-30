@@ -35,6 +35,7 @@ the character sheet - the numbers this game is played with, kept in saves/:
 """
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -643,11 +644,15 @@ def cmd_show(book: Book, args) -> int:
                 print(f"{sid} is read in one go - it has no parts", file=sys.stderr)
                 rc = 1
                 continue
-            print(f"{sid} reads in {len(parts)} parts, in this order:")
+            # Which passages a section is read in, and what to do between
+            # them: a plan for the narrator, ids and follow-on commands and all.
+            print(f"{sid} reads in {len(parts)} parts, in this order:",
+                  file=sys.stderr)
             for n, p in enumerate(parts, 1):
-                print(f"  {n}. {sid}#{p['part']:<9} {p.get('what', '')}")
+                print(f"  {n}. {sid}#{p['part']:<9} {p.get('what', '')}",
+                      file=sys.stderr)
                 if p.get("then"):
-                    print(f"     then: {p['then']}")
+                    print(f"     then: {p['then']}", file=sys.stderr)
             continue
         try:
             sec, note = fetch(book, raw)
@@ -675,6 +680,12 @@ def travel_row_hint(book: Book, q: str) -> str | None:
 
 
 def cmd_search(book: Book, args) -> int:
+    """Full-text search - an index into the book, not anything read aloud."""
+    with contextlib.redirect_stdout(sys.stderr):
+        return _search(book, args)
+
+
+def _search(book: Book, args) -> int:
     query = " ".join(args.query) if isinstance(args.query, list) else args.query
     q = " ".join(query.lower().split())
     hits = []
@@ -705,7 +716,7 @@ def cmd_search(book: Book, args) -> int:
 
 def cmd_travel(book: Book, args) -> int:
     if not args.terrain:
-        print(book.travel_table_text())
+        print(book.travel_table_text(), file=sys.stderr)
         return 0
     try:
         key = procedures.terrain_key(book, args.terrain)
@@ -716,22 +727,23 @@ def cmd_travel(book: Book, args) -> int:
 
     # The two 2d6 gates come first: they decide whether the 1d6 below happens.
     if args.lost is not None:
-        print(procedures.check_lost(book, key, args.lost, args.guide))
+        print(procedures.check_lost(book, key, args.lost, args.guide),
+              file=sys.stderr)
         return 0
     if args.event is not None:
-        print(procedures.check_event(book, key, args.event))
+        print(procedures.check_event(book, key, args.event), file=sys.stderr)
         return 0
 
     print(f"{terrain['name']}: lost on {terrain['lost_on']} (2d6), "
           f"event on {terrain['event_on']} (2d6), "
-          f"hunt {terrain['hunt']}, fodder {terrain['fodder']}")
+          f"hunt {terrain['hunt']}, fodder {terrain['fodder']}", file=sys.stderr)
     if args.roll is None:
         for i, ref in enumerate(terrain["event_refs"], 1):
-            print(f"  die {i} -> {ref}")
+            print(f"  die {i} -> {ref}", file=sys.stderr)
         return 0
 
     ref = terrain["event_refs"][args.roll - 1]
-    print(f"  die {args.roll} -> {ref}")
+    print(f"  die {args.roll} -> {ref}", file=sys.stderr)
     if ref not in book.travel["refs"]:
         # A row that points straight at an event, with no second roll (e009 in
         # farmland, the whole desert row).
@@ -745,11 +757,12 @@ def cmd_travel(book: Book, args) -> int:
     if args.roll2 is None:
         # Stopping here would hand back six outcomes the player has not earned,
         # so name the second roll instead of listing what it leads to.
-        print(f"\n{ref} is a second table: roll 1d6 again.")
-        print(f"  -> bp travel {key!r} {args.roll} <die>".replace("'", '"'))
+        print(f"\n{ref} is a second table: roll 1d6 again.", file=sys.stderr)
+        print(f"  -> bp travel {key!r} {args.roll} <die>".replace("'", '"'),
+              file=sys.stderr)
         return 0
     target, note = book.resolve(rolls[args.roll2 - 1])
-    print(f"  {ref} on {args.roll2} -> {target}")
+    print(f"  {ref} on {args.roll2} -> {target}", file=sys.stderr)
     sec = book.get(target)
     if not sec:
         print(book.why_missing(target) or f"{target} not found", file=sys.stderr)
@@ -808,7 +821,7 @@ def cmd_options(book: Book, args) -> int:
         print(book.why_missing(sid) or f"no section {sid}", file=sys.stderr)
         return 1
     if note:
-        print(f"[errata] {note}")
+        print(f"[errata] {note}", file=sys.stderr)
     parts = book.parts(sid)
     table = book.table(sid)
     if not table:
@@ -880,7 +893,7 @@ def cmd_resolve(book: Book, args) -> int:
         print(f"{sid} has no die-roll table", file=sys.stderr)
         return 1
     if note:
-        print(f"[errata] {note}")
+        print(f"[errata] {note}", file=sys.stderr)
 
     choice, roll = args.choice, args.roll
     # The choice is optional; with only a number, treat it as the roll.
@@ -908,14 +921,17 @@ def cmd_resolve(book: Book, args) -> int:
             # Modifiers can push a roll past the printed range; clamp to it.
             ks = sorted(rolls, key=int)
             row_key = ks[0] if roll < int(ks[0]) else ks[-1]
-            print(f"(roll {roll} is outside the table; using row {row_key})")
+            print(f"(roll {roll} is outside the table; using row {row_key})",
+                  file=sys.stderr)
         outcome = rows[row_key].get(key) if row_key else None
         if outcome is None:
             avail = ", ".join(sorted(rows.get(row_key, {}))) or "none"
             print(f"the table prints no {key} result on {roll} (the source shows a "
                   f"dash). available on that roll: {avail}", file=sys.stderr)
             return 1
-        print(f"{sid} {key} on {roll}: {outcome}")
+        # Which cell the roll landed in, named by section id: the referee's
+        # bookkeeping. The prose it leads to is printed below, on stdout.
+        print(f"{sid} {key} on {roll}: {outcome}", file=sys.stderr)
         own = book.subid_part(sid, outcome)
         dest = None if own else re.search(r"\b([re]\d{3})\b", outcome)
     else:
@@ -933,7 +949,7 @@ def cmd_resolve(book: Book, args) -> int:
         text = entry if isinstance(entry, str) else entry["text"]
         named = key and key != "(unlabelled)" and table["kind"] == "table"
         label = f" [{key}]" if named else ""
-        print(f"{sid}{label} on {roll}: {text}")
+        print(f"{sid}{label} on {roll}: {text}", file=sys.stderr)
         own = book.subid_part(sid, text)
         dest = None if own else re.search(r"\b([re]\d{3})\b", text)
 
@@ -942,7 +958,7 @@ def cmd_resolve(book: Book, args) -> int:
         # part of that outcome, not somewhere to jump next - and the table cell
         # sometimes holds only the first line of it, so read the passage itself.
         print(f"\n-> that is {own['subid']}, this section's own tail paragraph. "
-              f"Read it in full: bp show {sid}#{own['part']}")
+              f"Read it in full: bp show {sid}#{own['part']}", file=sys.stderr)
         return 0
     if not dest:
         return 0
@@ -952,7 +968,7 @@ def cmd_resolve(book: Book, args) -> int:
         print(book.why_missing(target) or f"-> {target} (not found)", file=sys.stderr)
         return 1
     if args.no_follow:
-        print(f"-> {target} {nxt['title']}")
+        print(f"-> {target} {nxt['title']}", file=sys.stderr)
         return 0
     nxt, counts = creatures.apply(nxt)
     print()
@@ -978,13 +994,19 @@ def cmd_roll(book: Book, args) -> int:
 
 
 def cmd_refs(book: Book, args) -> int:
+    """Cross-references in and out - a lookup, never read aloud."""
+    with contextlib.redirect_stdout(sys.stderr):
+        return _refs(book, args)
+
+
+def _refs(book: Book, args) -> int:
     sid, note = book.resolve(args.id)
     sec = book.get(sid)
     if not sec:
         print(book.why_missing(sid) or f"no section {sid}", file=sys.stderr)
         return 1
     if note:
-        print(f"[errata] {note}")
+        print(f"[errata] {note}", file=sys.stderr)
     print(f"{sid} {sec['title']}")
     print(f"  out: {' '.join(sec['refs']) or '(none)'}")
     print(f"  in:  {' '.join(book.incoming(sid)) or '(none)'}")
@@ -992,6 +1014,12 @@ def cmd_refs(book: Book, args) -> int:
 
 
 def cmd_list(book: Book, args) -> int:
+    """Section ids and titles - a directory, never spoken."""
+    with contextlib.redirect_stdout(sys.stderr):
+        return _list(book, args)
+
+
+def _list(book: Book, args) -> int:
     pre = (args.prefix or "").lower()
     for sid, sec in book.sections.items():
         if sid.startswith(pre):
