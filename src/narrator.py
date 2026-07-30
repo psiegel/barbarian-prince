@@ -32,7 +32,10 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BP = ROOT / "bp"
+# Invoked as a module with this same interpreter rather than through a
+# wrapper script: one less process, and a venv-run client cannot end up
+# calling whatever `python3` happens to be first on PATH.
+BP = [sys.executable, str(ROOT / "src" / "bp.py")]
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
 MODEL = os.environ.get("BP_MODEL", "qwen3.6:latest")
@@ -47,97 +50,24 @@ DIM, PROSE, ASIDE, RESET = "\033[2m", "\033[36m", "\033[33m", "\033[0m"
 
 # --- the system prompt ----------------------------------------------------
 
-# CLAUDE.md's "One text, and how it gets spoken" section tells a narrator to
-# relay stdout itself and describes a Stop hook. Both are this program's job
-# now, and leaving the section in would produce every section twice - once
-# spoken by the router, once repeated by the model.
-CUT_SECTION = "## One text, and how it gets spoken"
-CUT_UNTIL = "## Regenerating"
+PROMPT = ROOT / "src" / "prompts" / "system.md"
 
-ADDENDUM = """
-## How you are being run
-
-You are the narrator in a program that owns the screen and the speaker. You
-have one tool, `bp`, which runs the reference CLI with the arguments you give
-it - `{"args": ["show", "e001#premise"]}` is `./bp show e001#premise`.
-
-**You never write the booklet's words.** Not one sentence of section text comes
-from you. You do not know what the sections say - the book is not in your
-memory, and whatever you seem to recall of it is wrong. If prose needs to reach
-the player it reaches them through a `bp` command and by no other route. When a
-tool result says "read this passage aloud: bp show e001#premise", that is an
-instruction to call `bp` with those arguments. It is not an instruction to
-compose the passage yourself.
-
-**The prose is already delivered.** Everything a command prints on stdout has
-been shown to the player and read aloud before you see it. Do not repeat it,
-summarise it, or quote it back. Your own words are for what surrounds it: the
-colour, the ruling, and the question you leave the player on.
-
-**stderr is yours alone.** Section ids, errata, `-> r330`, `-> then:` and the
-band-size notes are never shown or spoken. Read them - that is where the
-follow-ons are - but write as though the player has only heard the prose.
-
-Every die roll and every lookup goes through `bp`. If you find yourself
-recalling what a table says, call the tool instead.
-"""
+# Keep it short. Measured on qwen3.6, same model and same turn: with CLAUDE.md's
+# ~6,900 tokens of guidance it invented an opening passage whole ("the last
+# Prince of Kesh, the evil wizard Gorgon"); with a few hundred tokens saying only
+# "you don't know the book, call the tool" it fetched the real one. Length is not
+# a tidiness question here - it is the difference between narration and fiction.
+BUDGET = 2000
 
 
-# CLAUDE.md is ~7,300 tokens written for a frontier model, and on a 36B local
-# model it drowns the one rule that matters. Measured, same model and same turn:
-# with CLAUDE.md it invented an opening ("the last Prince of Kesh, the evil
-# wizard Gorgon"); with a 126-token prompt saying only "you don't know the book,
-# call the tool", it called `bp show e001#premise` correctly. So the default is
-# compact and leans on bp, which already prints every procedure on demand -
-# there is no reason to duplicate them here.
-COMPACT = """You are the narrator for the 1981 solitaire gamebook Barbarian
-Prince. The player has the map, the token and the dice. You find the right
-section, apply the rules, and keep the character sheet.
-
-**You do not know what the book says.** Its text is not in your memory, and
-anything you seem to recall of it is wrong - wrong kingdom, wrong names, wrong
-numbers. The only way any passage reaches the player is a `bp` command. Never
-write the book's prose, never quote it, never paraphrase it. If a tool result
-names a command - "read this passage aloud, then stop: bp show e001#premise" -
-call `bp` with those arguments immediately, in the same turn.
-
-**The prose is already delivered.** Whatever a command prints on stdout has been
-shown and read aloud to the player before you see it. Never repeat it. Your own
-words are the colour around it, the ruling, and the question you end on.
-
-**stderr is yours alone.** Section ids, errata, `-> r330`, `-> then:`, the
-procedure checklists and the band-size notes are never shown or spoken. Read
-them - the follow-ons are there - but write as if the player heard only prose.
-
-**Stop at every decision.** One stop per message. Read the setup, name the
-choice and the dice (say whether it is 1d6 or 2d6 and any modifiers), then stop
-and wait. The player rolls their own dice. Never roll for them, never read a
-table's outcomes aloud, never reveal a branch they did not take.
-
-**Every lookup and every die goes through bp.** Ask it for the procedure rather
-than recalling one: `bp start` to begin, `bp day <hex>` for the day's actions
-and dusk checks, `bp move <from> <to>` for travel, `bp options <id>` then
-`bp resolve <id> [choice] <roll>` for an encounter, `bp travel`, `bp treasure`,
-`bp search` when you don't know the number. The sheet lives in `bp game`,
-`bp party`, `bp food`, `bp gold`, `bp time`, `bp eat`, `bp lodge`, `bp foe` -
-read it back rather than remembering it, and write to it the moment it changes.
-
-If bp refuses or reports missing data, say so plainly. Never invent an outcome
-to paper over it."""
-
-
-def system_prompt(full: bool = False) -> str:
-    """The compact narrator prompt, or CLAUDE.md for a model that can hold it."""
-    if not full:
-        return COMPACT
-    text = (ROOT / "CLAUDE.md").read_text()
-    start, end = text.find(CUT_SECTION), text.find(CUT_UNTIL)
-    if start != -1 and end != -1:
-        text = text[:start] + text[end:]
-    else:
-        print(f"{DIM}[warning] CLAUDE.md sections moved; the voice instructions "
-              f"may now be doubled up{RESET}", file=sys.stderr)
-    return text + "\n" + ADDENDUM
+def system_prompt() -> str:
+    text = PROMPT.read_text()
+    if len(text) // 4 > BUDGET:
+        print(f"{ASIDE}[warning] {PROMPT.name} is ~{len(text) // 4} tokens. Past "
+              f"roughly {BUDGET} a small model starts inventing prose instead of "
+              f"fetching it - trim it, or move the detail into bp.{RESET}",
+              file=sys.stderr)
+    return text
 
 
 # --- speech ---------------------------------------------------------------
@@ -190,7 +120,7 @@ class Speaker:
             if text is None:
                 return
             try:
-                subprocess.run([str(BP), "say", "--stdin"], input=text, text=True,
+                subprocess.run([*BP, "say", "--stdin"], input=text, text=True,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                timeout=600)
             except (OSError, subprocess.SubprocessError):
@@ -245,7 +175,7 @@ def run_bp(args: list[str], speaker: Speaker, referee: bool) -> str:
     # No shell: args go straight to execve, so nothing the model emits can be
     # interpreted as a shell operator. Bad arguments fail in bp's own argparse.
     try:
-        p = subprocess.run([str(BP), *args], capture_output=True, text=True,
+        p = subprocess.run([*BP, *args], capture_output=True, text=True,
                            timeout=120)
     except (OSError, subprocess.SubprocessError) as e:
         return json.dumps({"stdout": "", "stderr": f"could not run bp: {e}",
@@ -496,10 +426,6 @@ def main() -> int:
                     help="show the tool calls and bp's stderr")
     ap.add_argument("--quiet", action="store_true", help="no speech")
     ap.add_argument("--model", default=MODEL)
-    ap.add_argument("--full-prompt", action="store_true",
-                    help="use CLAUDE.md as the system prompt instead of the "
-                         "compact one (needs a model that can hold 7k tokens "
-                         "of guidance without losing the thread)")
     args = ap.parse_args()
 
     if not (ROOT / "data" / "sections.json").exists():
@@ -509,7 +435,7 @@ def main() -> int:
 
     MODEL = args.model
     speaker = Speaker(enabled=not args.quiet)
-    messages = [{"role": "system", "content": system_prompt(args.full_prompt)}]
+    messages = [{"role": "system", "content": system_prompt()}]
 
     print(f"{ASIDE}Barbarian Prince - {MODEL} via Ollama"
           f"{' (referee view)' if args.referee else ''}\n"

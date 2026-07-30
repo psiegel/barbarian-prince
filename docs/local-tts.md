@@ -116,10 +116,10 @@ correctly-labelled `.mp3` or `.wav` whichever the server chooses.
 Then:
 
 ```sh
-./bp show e001 | ./bp say --stdin              # uses whatever BP_TTS says
-./bp say --backend kokoro "the Prince rides"   # force local
-./bp say --voice bm_lewis "a swordsman"        # override the voice for one call
-./bp say --backend say "no model at all"
+bp show e001 | bp say --stdin              # uses whatever BP_TTS says
+bp say --backend kokoro "the Prince rides"   # force local
+bp say --voice bm_lewis "a swordsman"        # override the voice for one call
+bp say --backend say "no model at all"
 ```
 
 You can leave `BP_TTS` unset entirely: with the server running, `auto` finds it.
@@ -143,7 +143,7 @@ To audition a few quickly:
 
 ```sh
 for v in bm_george bm_daniel bm_lewis am_michael; do
-  echo ">> $v"; ./bp show r316 | ./bp say --stdin --backend kokoro --voice "$v"
+  echo ">> $v"; bp show r316 | bp say --stdin --backend kokoro --voice "$v"
 done
 ```
 
@@ -193,7 +193,7 @@ against the running server are fast.
 
 **Wrong pronunciation of rule numbers** — that's this repo, not Kokoro. `bp` rewrites
 `r203` to "rule 203" before synthesis; see `to_prose()` in `src/bp.py`, and check
-the exact text with `./bp show <id>`.
+the exact text with `bp show <id>`.
 
 ## VibeVoice, if you still want it
 

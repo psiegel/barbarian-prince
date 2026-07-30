@@ -59,8 +59,8 @@ Download it as CSV to `data/map-data.csv` and build:
 python3 src/extract_map.py
 ```
 
-The CLI then takes hex ids directly — `./bp hex 1017`, `./bp move 1017 1118`,
-`./bp day 0101` — and looks up terrain, adjacency and compass direction for you
+The CLI then takes hex ids directly — `bp hex 1017`, `bp move 1017 1118`,
+`bp day 0101` — and looks up terrain, adjacency and compass direction for you
 instead of asking. Without it everything still works; you just name the terrain
 yourself.
 
@@ -108,7 +108,7 @@ Four backends, picked automatically: a local Kokoro server if one is listening, 
 ElevenLabs if a key is set, else the macOS `say` command — or `off`. Set `BP_TTS` in
 `.env` to force one. It never hard-fails: an unreachable backend falls back to `say`
 and says why. With no configuration at all you get `say`, and the rest of the CLI is
-unaffected. `./bp say` reads stdin aloud, which is all `./play` calls.
+unaffected. `bp say` reads stdin aloud, which is all `./play` calls.
 
 Settings live in `.env`, which is git-ignored and loaded automatically. Start from
 the annotated template, which documents every option:
@@ -132,42 +132,55 @@ why Kokoro rather than VibeVoice are in **[docs/local-tts.md](docs/local-tts.md)
 permission, plus voices-read if you want to list voices. Free accounts can only use
 `premade` voices via the API — `professional` and library voices return HTTP 402.
 
-## Usage
+## The reference CLI
+
+`./play` is how you play. Underneath it is `bp`, the reference layer the narrator
+calls as its one tool — every section lookup, table resolution and change to the
+character sheet goes through it. You rarely need to run it by hand, but it is a
+complete CLI, and reading its output is the fastest way to see what the narrator
+is working from.
+
+There is no wrapper script; invoke the module, or alias it:
 
 ```sh
-./bp start                 # the setup sequence for a new game
-./bp day 0101              # today's actions, and the end-of-day checks
-./bp hex 1017              # terrain, feature, adjacent hexes, rivers and roads
-./bp move 1017 1118        # the ordered checks for one hex of travel
-./bp options e003          # the choices and dice for a section, without the outcomes
-./bp resolve e003 evade 4  # apply a choice and roll, print what it leads to
-./bp show r203 e001        # print sections
-./bp show e001#premise     # one passage of a section that pauses mid-page
-./bp search "lodging"      # full-text search
-./bp travel forest 3 5     # travel table, resolved down to the event
-./bp treasure 2 4          # the r226 wealth-code grid
-./bp refs r220             # cross-references in and out
-./bp roll 2d6              # dice
-./bp list e                # all event ids and titles
-./bp show e003 --raw       # the source layout: tables, ids, refs (referee only)
-./bp say                   # read stdin aloud (what ./play calls)
+python3 src/bp.py show e003
+alias bp='python3 "$PWD/src/bp.py"'    # the examples below assume this
+```
+
+```sh
+bp start                 # the setup sequence for a new game
+bp day 0101              # today's actions, and the end-of-day checks
+bp hex 1017              # terrain, feature, adjacent hexes, rivers and roads
+bp move 1017 1118        # the ordered checks for one hex of travel
+bp options e003          # the choices and dice for a section, without the outcomes
+bp resolve e003 evade 4  # apply a choice and roll, print what it leads to
+bp show r203 e001        # print sections
+bp show e001#premise     # one passage of a section that pauses mid-page
+bp search "lodging"      # full-text search
+bp travel forest 3 5     # travel table, resolved down to the event
+bp treasure 2 4          # the r226 wealth-code grid
+bp refs r220             # cross-references in and out
+bp roll 2d6              # dice
+bp list e                # all event ids and titles
+bp show e003 --raw       # the source layout: tables, ids, refs (referee only)
+bp say                   # read stdin aloud (what ./play calls)
 ```
 
 And the character sheet for a game in progress:
 
 ```sh
-./bp game                  # day, food, gold, party, wounds, starvation, loads
-./bp game new --wits 4 --gold 30 --hex 0101   # start tracking (bp start ends here)
-./bp time +1               # advance the day; 70 days, ten weeks, day 71 is a loss
-./bp food +5               # food units; ./bp gold -3 for money
-./bp party add Lancer --cs 5 --end 5 --pay 3  # a follower joins (r210)
-./bp party wound Lancer +2 # wounds, and what they do to him (r220c, r221)
-./bp eat --hex 1017        # the evening meal; fodder read off the travel table
-./bp pay                   # the day's wages to hired followers (r333)
-./bp lodge                 # rooms and stables for the night (r217)
-./bp foe add Dwarf --cs 6 --end 7 --wealth 3  # enemies, for one fight only
-./bp fight auto --rout     # roll out a whole combat, round by round (r220)
-./bp encounter             # how many of them there are, once it has been read out
+bp game                  # day, food, gold, party, wounds, starvation, loads
+bp game new --wits 4 --gold 30 --hex 0101   # start tracking (bp start ends here)
+bp time +1               # advance the day; 70 days, ten weeks, day 71 is a loss
+bp food +5               # food units; bp gold -3 for money
+bp party add Lancer --cs 5 --end 5 --pay 3  # a follower joins (r210)
+bp party wound Lancer +2 # wounds, and what they do to him (r220c, r221)
+bp eat --hex 1017        # the evening meal; fodder read off the travel table
+bp pay                   # the day's wages to hired followers (r333)
+bp lodge                 # rooms and stables for the night (r217)
+bp foe add Dwarf --cs 6 --end 7 --wealth 3  # enemies, for one fight only
+bp fight auto --rout     # roll out a whole combat, round by round (r220)
+bp encounter             # how many of them there are, once it has been read out
 ```
 
 Combat is normally played a strike at a time, which is the point — you choose who
@@ -222,8 +235,8 @@ every anchor still matches, and a rewrite that no longer does is reported rather
 than guessed at.
 
 The point is that the AI never has to remember a number or add one up in prose.
-Saves are one JSON file per game in `saves/` (not tracked); `./bp game list` and
-`./bp game use <name>` switch between them, and `$BP_GAME` overrides the current
+Saves are one JSON file per game in `saves/` (not tracked); `bp game list` and
+`bp game use <name>` switch between them, and `$BP_GAME` overrides the current
 one. Derived numbers come with the rule that produced them: effective combat
 skill after days of starvation (r216b), condition and strike modifiers (r220c,
 r221), carrying capacity against loads carried (r206). Anything the rules settle
@@ -241,13 +254,13 @@ describes in prose rather than in a table. Travel especially is a fixed order of
 checks spread across r204, r205 and r207, and `move` prints that order instead of
 leaving the AI to reassemble it — which is where wrong rulings come from.
 
-Start a game by asking the AI to start a new game, or run `./bp start` yourself.
+Start a game by asking the AI to start a new game, or run `bp start` yourself.
 
 A couple of sections are written to be read in sittings — `e001` sends you off to
 `r202` and tells you to come back, then stops again for the caravan die. Those
 passages are named (`e001#premise`, `e001#caravan`, `e001#dawn`), so the AI reads
 one, asks for what it needs, and waits, instead of dumping the whole page and
-asking for three rolls at once. `./bp show e001 --parts` lists them; the split
+asking for three rolls at once. `bp show e001 --parts` lists them; the split
 points live in `data/procedures.json` as quoted anchors, not as copied text.
 
 The same split does a second job in `e060`, `e068` and `e105`, which print an
