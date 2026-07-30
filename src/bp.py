@@ -31,6 +31,7 @@ the character sheet - the numbers this game is played with, kept in saves/:
   bp lodge                 rooms and stables for the night (r217)
   bp foe add Dwarf --cs 6 --end 7 --wealth 3  enemies, for this fight only
   bp fight auto            roll out a whole combat, round by round (r220)
+  bp fight quick --us "Cal Arath" 8 9 --them Goblin 4 5 3 4   the same, no save
   bp encounter             how many of them there are, once it has been read out
 """
 

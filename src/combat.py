@@ -25,6 +25,10 @@ rather than being guessed at.
 
 Wounds are written to the save as each round ends, so an interrupted fight
 leaves the sheet true as far as it got.
+
+`bp fight quick` is the same dice with both sides given on the command line and
+no save touched at either end - for the fight you want to see resolved without
+first writing everyone down.
 """
 
 import argparse
@@ -213,8 +217,12 @@ def outcome(g: dict, rounds: int, routed: list[dict],
 
 
 def fight(g: dict, rng: random.Random, rout: bool = False, first: str = "us",
-          surprise: str | None = None) -> tuple[list[str], dict]:
-    """Run the fight to its end. Returns (the log, the outcome)."""
+          surprise: str | None = None, save: bool = True) -> tuple[list[str], dict]:
+    """Run the fight to its end. Returns (the log, the outcome).
+
+    `save` off is `bp fight quick`: the game is a scratch dict built from the
+    command line and has no file behind it, so there is nothing to write to.
+    """
     log: list[str] = []
     routed: list[dict] = []
 
@@ -257,7 +265,8 @@ def fight(g: dict, rng: random.Random, rout: bool = False, first: str = "us",
             done = phase(side)
             if done:
                 return log, done
-        state.write_game(g)
+        if save:
+            state.write_game(g)
 
     return log, {"why": "too-long", "rounds": MAX_ROUNDS, "routed": routed,
                  "result": f"Still going after {MAX_ROUNDS} rounds. Something is "
@@ -307,7 +316,116 @@ def cmd_fight_auto(book, args) -> int:
     return 0
 
 
-def report(g: dict, done: dict) -> None:
+# --- a fight with no save behind it ---------------------------------------
+#
+# Everything above works on a game read off disk. This does not: both sides are
+# typed out, the dice are rolled, and nothing is read from or written to a save.
+# It is the same r220 code either way - the only difference is where the two
+# rosters come from, so a quick fight cannot drift from a recorded one.
+
+
+def numbers(spec: list[str], fields: list[str], what: str) -> tuple[str, list[int]]:
+    """'Cal Arath 8 9' -> ('Cal Arath', [8, 9]). The first two are never optional."""
+    name, *rest = spec
+    said = " ".join(spec)
+    if len(rest) < 2:
+        raise Refuse(f"{what}, {said!r}: a name, a combat skill and an endurance "
+                     f"are the least of it.")
+    if len(rest) > len(fields):
+        raise Refuse(f"{what}, {said!r}: {len(rest)} numbers, and there are only "
+                     f"{len(fields)} to give - {', '.join(fields)}.")
+    for n in rest:
+        if not n.lstrip("-").isdigit():
+            raise Refuse(f"{what}, {said!r}: {n!r} is not a number. The name comes "
+                         f"first, then {', '.join(fields)}.")
+    vals = [int(n) for n in rest]
+    if not name.strip():
+        raise Refuse(f"{what}, {said!r}: no name.")
+    if vals[1] < 1:
+        # end 0 is how the sheet marks a character whose endurance is unknown, and
+        # state.dead() can never be true for one - the fight would not end.
+        raise Refuse(f"{name} has endurance {vals[1]}. A combatant with no "
+                     f"endurance can never be killed and the fight would not end.")
+    if vals[0] < 0:
+        raise Refuse(f"{name} has combat skill {vals[0]}.")
+    return name.strip(), vals
+
+
+US_FIELDS = ["combat skill", "endurance", "wounds already taken"]
+THEM_FIELDS = ["combat skill", "endurance", "wealth code", "how many of them"]
+
+
+def quick_game(args) -> dict:
+    """Build a scratch game from --us/--them. Never touches saves/."""
+    if not args.us:
+        raise Refuse("nobody is fighting. --us NAME CS END [WOUNDS], once per "
+                     "character on your side.")
+    if not args.them:
+        raise Refuse("nothing to fight. --them NAME CS END [WEALTH] [COUNT], once "
+                     "per kind of enemy.")
+
+    party = []
+    for i, spec in enumerate(args.us):
+        name, vals = numbers(spec, US_FIELDS, "your side")
+        # The Prince is the reason two of the outcomes exist (r221b, r221c), so
+        # the first one named is him unless the player says otherwise.
+        kind = "follower" if (i or args.no_prince) else "player"
+        ch = state.new_char(name, kind)
+        ch.update(cs=vals[0], end=vals[1], wounds=vals[2] if len(vals) > 2 else 0)
+        party.append(ch)
+
+    foes = []
+    for spec in args.them:
+        name, vals = numbers(spec, THEM_FIELDS, "the enemy")
+        wealth = vals[2] if len(vals) > 2 else 0
+        count = vals[3] if len(vals) > 3 else 1
+        if count < 1:
+            raise Refuse(f"{name}: {count} of them is not a band.")
+        for i in range(count):
+            foes.append({"name": name if count == 1 else f"{name} {i + 1}",
+                         "cs": vals[0], "end": vals[1], "wealth": wealth,
+                         "wounds": 0})
+
+    clash = {f["name"].lower() for f in foes}
+    if len(clash) != len(foes):
+        raise Refuse("two enemies share a name - the log would be unreadable. "
+                     "Give them distinct names, or one name with a count.")
+    return {"party": party, "foes": foes}
+
+
+def roster_line(chars: list[dict]) -> str:
+    return ", ".join(
+        f"{c['name']} cs {c['cs']} end {c['end']}"
+        + (f" ({c['wounds']} wounded)" if c.get("wounds") else "")
+        + (f" wealth {c['wealth']}" if c.get("wealth") else "")
+        for c in chars)
+
+
+def cmd_fight_quick(book, args) -> int:
+    try:
+        g = quick_game(args)
+    except Refuse as e:
+        print(e, file=sys.stderr)
+        return 1
+
+    # What was understood from the command line, so a mistyped number is caught
+    # by reading rather than by wondering why the fight went the way it did.
+    # Referee's, like every other roster: the player hears the fight, not this.
+    print(f"quick fight - no save is read or written.\n"
+          f"  your side: {roster_line(g['party'])}\n"
+          f"  the enemy: {roster_line(g['foes'])}", file=sys.stderr)
+
+    log, done = fight(g, random.Random(args.seed), rout=args.rout,
+                      first=args.first, surprise=args.surprise, save=False)
+    print("\n".join(log))
+    print(f"\n{done['result']}")
+    report(g, done, saved=False)
+    print("\nNone of this reached a character sheet - both sides were typed, not "
+          "read from a save. bp party wound <name> +<n> to record what it cost.")
+    return 0
+
+
+def report(g: dict, done: dict, saved: bool = True) -> None:
     """The state of both sides once the dice stop, and what to do next."""
     ours = [c for c in g["party"] if not state.is_mount(c)]
     print("\nyour party:")
@@ -346,9 +464,20 @@ def report(g: dict, done: dict) -> None:
         print("\nNobody is left to strike back. Rule on what the enemy does with "
               "the fallen.")
         return
-    if killed or left:
+    if not (killed or left):
+        return
+    if saved:
         print("\nbp foe clear when you are done here - it prints the wealth codes "
               "of the dead so the treasure roll is not forgotten (r225).")
+        return
+    # Nothing will be cleared later, so the wealth codes are printed here or not
+    # at all - a quick fight has no `bp foe clear` to remember them for it.
+    loot = [f for f in killed if f["wealth"]]
+    if loot:
+        print("\nThe dead carried wealth (r225):")
+        for f in loot:
+            print(f"  {f['name']}: wealth code {f['wealth']} -> roll 1d6, "
+                  f"bp treasure {f['wealth']} <die>")
 
 
 def register(sub) -> None:
@@ -356,18 +485,37 @@ def register(sub) -> None:
     s = sub.add_parser("fight", help="resolve a whole combat by code (r220)")
     fsub = s.add_subparsers(dest="fightcmd", required=True)
 
+    def r220_flags(p):
+        """The three decisions that are the player's, not the code's."""
+        p.add_argument("--rout", action="store_true",
+                       help="try to rout the enemy after each round in which you "
+                            "kill one: 1d6 per kill, a 6 and the survivors flee "
+                            "with their wealth (r220f). Ask the player before the "
+                            "fight; it applies every round.")
+        p.add_argument("--first", choices=["us", "them"], default="us",
+                       help="which side strikes first each round - the event says "
+                            "which (r220a, default: us)")
+        p.add_argument("--surprise", choices=["us", "them"],
+                       help="that side gets one free strike, then strikes first "
+                            "each round (r220d)")
+        p.add_argument("--seed", type=int, help="fix the dice, to replay a fight")
+
     a = fsub.add_parser("auto", help="roll out every round until one side wins")
     a.add_argument("--game", help="act on a save other than the current one")
-    a.add_argument("--rout", action="store_true",
-                   help="try to rout the enemy after each round in which you kill "
-                        "one: 1d6 per kill, a 6 and the survivors flee with their "
-                        "wealth (r220f). Ask the player before the fight; it "
-                        "applies every round.")
-    a.add_argument("--first", choices=["us", "them"], default="us",
-                   help="which side strikes first each round - the event says "
-                        "which (r220a, default: us)")
-    a.add_argument("--surprise", choices=["us", "them"],
-                   help="that side gets one free strike, then strikes first each "
-                        "round (r220d)")
-    a.add_argument("--seed", type=int, help="fix the dice, to replay a fight")
+    r220_flags(a)
     a.set_defaults(fn=cmd_fight_auto)
+
+    q = fsub.add_parser("quick", help="the same fight with both sides given here, "
+                                      "and no save touched")
+    q.add_argument("--us", action="append", nargs="+", metavar="NAME CS END [WOUNDS]",
+                   help="one character on your side; repeat for each. The first "
+                        "named is the Prince (r221b, r221c).")
+    q.add_argument("--them", action="append", nargs="+",
+                   metavar="NAME CS END [WEALTH] [COUNT]",
+                   help="one kind of enemy; repeat for each. COUNT numbers them "
+                        "'Goblin 1', 'Goblin 2', ...")
+    q.add_argument("--no-prince", action="store_true",
+                   help="nobody on your side is the Prince, so his falling does "
+                        "not stop the fight")
+    r220_flags(q)
+    q.set_defaults(fn=cmd_fight_quick)

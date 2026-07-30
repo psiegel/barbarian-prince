@@ -647,9 +647,165 @@ def run_load(name: str, speaker: Speaker, referee: bool) -> str | None:
             f"{(state.stdout + state.stderr).strip()}")
 
 
+# --- looking something up -------------------------------------------------
+#
+# The narrator is not in this one. A player who wants to hear r220 again is
+# reading the book, not asking a question, and routing that through the model
+# only risks a paraphrase of a passage bp can deliver word for word. So bp
+# prints it, the speaker says it, and the model is told afterwards what the
+# player has just seen so that it does not read it back to them.
+
+
+def run_lookup(ids: list[str], speaker: Speaker, referee: bool) -> str | None:
+    """Read sections out on the player's say-so. Returns a note for the model."""
+    if not ids:
+        print(f"{ASIDE}/lookup <section> - r220, e052, e001#premise. Several at "
+              f"once is fine.{RESET}")
+        return None
+    if any(i.startswith("-") for i in ids):
+        # --raw is the source layout: tables, ids, cross-references. It exists to
+        # adjudicate with, and it is the one thing that must never be spoken.
+        print(f"{ASIDE}/lookup takes section ids, not flags.{RESET}")
+        return None
+
+    out = json.loads(run_bp(["show", *ids], speaker, referee))
+    if not out["stdout"].strip():
+        print(f"{ASIDE}{out['stderr'].strip() or 'nothing to read there'}{RESET}")
+        return None
+    return (f"The player looked up {', '.join(ids)} for themselves. bp printed it "
+            f"and it was read aloud to them just now - they were reading, not "
+            f"asking you anything, so do not repeat it, summarise it or act on it "
+            f"unless they say something next. It is below only so that you know "
+            f"what they have seen.\n\n{out['stdout'].strip()}")
+
+
+# --- a fight, rolled out --------------------------------------------------
+#
+# `bp fight quick` wants both sides on one command line, which is a poor thing
+# to type at a prompt, so the typing happens a line at a time here: a name and
+# its numbers, blank line when the side is done. Nothing is read from the sheet
+# and nothing is written to it - this is the fight you want to see resolved,
+# not the one being recorded.
+
+INT = re.compile(r"\d+")
+
+
+class Abandoned(Exception):
+    """The player backed out of the questions rather than answering them."""
+
+
+def ask(prompt: str) -> str:
+    try:
+        said = input(prompt).strip()
+    except EOFError:
+        raise Abandoned
+    if said.lower() in ("/quit", "/exit", "/cancel", "/stop"):
+        raise Abandoned
+    return said
+
+
+def fighter(said: str, most: int) -> list[str] | None:
+    """'Cal Arath 8 9 2' -> ['Cal Arath', '8', '9', '2'].
+
+    Read from the right: the trailing numbers are the numbers and whatever comes
+    before them is the name, so a name with a space in it needs no quoting.
+    """
+    parts = said.split()
+    nums: list[str] = []
+    while parts and len(nums) < most and INT.fullmatch(parts[-1]):
+        nums.insert(0, parts.pop())
+    if not parts or len(nums) < 2:
+        return None
+    return [" ".join(parts), *nums]
+
+
+def ask_side(what: str, fields: str, example: str, most: int) -> list[list[str]]:
+    """Collect one side of the fight, one line each. Raises Abandoned."""
+    print(f"\n{ASIDE}{what}{RESET}\n{DIM}  name, {fields} - e.g. \"{example}\", "
+          f"and a blank line when that is everyone{RESET}")
+    got: list[list[str]] = []
+    while True:
+        said = ask(f"  {ASIDE}>{RESET} ")
+        if not said:
+            if got:
+                return got
+            print(f"{DIM}  nobody yet - /cancel to call the fight off{RESET}")
+            continue
+        one = fighter(said, most)
+        if not one:
+            print(f"{DIM}  a name, and then {fields}{RESET}")
+            continue
+        got.append(one)
+        print(f"{DIM}  {one[0]}: {', '.join(one[1:])}{RESET}")
+
+
+def ask_one(prompt: str, answers: dict[str, str], default: str) -> str:
+    """One question with fixed answers, matched on any prefix. Raises Abandoned."""
+    while True:
+        said = ask(f"\n{ASIDE}{prompt}{RESET} ").lower()
+        if not said:
+            return default
+        for word, value in answers.items():
+            if word.startswith(said):
+                return value
+        print(f"{DIM}  {', '.join(answers)}, or enter{RESET}")
+
+
+def run_fight(speaker: Speaker, referee: bool) -> str | None:
+    """Ask for both sides, roll the fight out, hand the result to the narrator."""
+    print(f"\n{ASIDE}A fight rolled out by code (r220).{RESET} {DIM}Both sides are "
+          f"typed here: nothing is read from the sheet and nothing is written to "
+          f"it.{RESET}")
+    try:
+        us = ask_side("Your side - the first one named is the Prince.",
+                      "combat skill, endurance, and wounds already taken",
+                      "Cal Arath 8 9", 3)
+        them = ask_side("The enemy.",
+                        "combat skill, endurance, wealth code, how many of them",
+                        "Goblin 4 5 3 9", 4)
+        first = ask_one("Who strikes first each round - us or them? (r220a) [US/them]",
+                        {"us": "us", "them": "them"}, "us")
+        surprise = ask_one("Surprise, one free strike before the rounds? (r220d) "
+                           "[NO/us/them]",
+                           {"no": "", "us": "us", "them": "them"}, "")
+        rout = ask_one("Rout check on every round you kill one? (r220f) [y/N]",
+                       {"yes": "--rout", "no": ""}, "")
+    except Abandoned:
+        print(f"\n{ASIDE}No fight.{RESET}")
+        return None
+
+    cmd = ["fight", "quick"]
+    for one in us:
+        cmd += ["--us", *one]
+    for one in them:
+        cmd += ["--them", *one]
+    cmd += ["--first", first]
+    if surprise:
+        cmd += ["--surprise", surprise]
+    if rout:
+        cmd.append(rout)
+
+    out = json.loads(run_bp(cmd, speaker, referee))
+    if out["exit"] != 0:
+        print(f"{ASIDE}{out['stderr'].strip()}{RESET}")
+        return None
+
+    ours = ", ".join(one[0] for one in us)
+    theirs = ", ".join(one[0] for one in them)
+    return (f"The player asked for a fight to be rolled out and it is done: "
+            f"{ours} against {theirs}. The strike log below was printed for them "
+            f"but NOT read aloud, so tell them what happened - who fell, who is "
+            f"still standing and what it cost - in a few sentences. Every number "
+            f"in it was typed in for this fight and none of it is on the "
+            f"character sheet, so do not record wounds or treasure unless they "
+            f"ask you to.\n\n{out['stdout'].strip()}")
+
+
 COMMANDS = {
     "/start": "begin a new game (walks setup in order)",
     "/load": "/load <name> to resume a save, /load alone to list them",
+    "/lookup": "/lookup r220 - read a section of the book aloud, no narration",
+    "/fight": "roll a whole fight out: you type both sides, nothing is saved",
     "/dusk": "close out the day: e002, the meal, wages, lodging, the date",
     "/referee": "toggle showing the tool calls and bp's stderr",
     "/help": "this list",
@@ -763,8 +919,26 @@ def main() -> int:
                 break
             if said in ("/quit", "/exit"):
                 break
+            if not said:
+                continue  # before anything reads said.split()[0]
             if said.split()[0] in ("/load", "/resume", "/saves"):
                 summary = run_load(" ".join(said.split()[1:]), speaker, args.referee)
+                if summary:
+                    messages.append({"role": "user", "content": summary})
+                    take_turn(messages, speaker, args.referee)
+                continue
+            if said.split()[0] in ("/lookup", "/show", "/read"):
+                # No turn is taken: the player is reading, not asking. The note
+                # rides along on their next message instead.
+                note = run_lookup(said.split()[1:], speaker, args.referee)
+                if note:
+                    messages.append({"role": "user", "content": note})
+                continue
+            if said.split()[0] in ("/fight", "/combat"):
+                if said.split()[1:]:
+                    print(f"{ASIDE}/fight takes no arguments - both sides are "
+                          f"asked for below.{RESET}")
+                summary = run_fight(speaker, args.referee)
                 if summary:
                     messages.append({"role": "user", "content": summary})
                     take_turn(messages, speaker, args.referee)
@@ -788,8 +962,6 @@ def main() -> int:
             if said == "/referee":
                 args.referee = not args.referee
                 print(f"{DIM}referee view {'on' if args.referee else 'off'}{RESET}")
-                continue
-            if not said:
                 continue
             if said.startswith("/"):
                 print(f"{ASIDE}No such command: {said.split()[0]}. "

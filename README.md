@@ -100,6 +100,26 @@ Because the model never carries the booklet's text, it cannot fail to deliver it
 judgment in "read this passage, roll a die, write it down", so the model is not
 consulted until day 1.
 
+Anything typed that does not begin with `/` goes to the narrator. The slash
+commands are the parts where it is kept out of the way:
+
+| | |
+|---|---|
+| `/start` | a new game, the seven setup steps walked in code |
+| `/load <name>` | resume a save; `/load` alone lists them |
+| `/lookup r220` | read a section of the book aloud, and nothing else |
+| `/fight` | roll a whole fight out; you type both sides |
+| `/dusk` | close the day out: e002, the meal, wages, lodging, the date |
+| `/referee` | show the tool calls and `bp`'s stderr |
+
+`/lookup` is the book unmediated — `bp` prints the passage, the voice reads it,
+and the narrator is told afterwards only that the player has seen it, so that it
+neither repeats it nor answers a question nobody asked. `/fight` collects both
+sides a line at a time (`Cal Arath 8 9`, blank line when that is everyone), asks
+the three `r220` questions that are the player's to answer, and runs
+`bp fight quick`. The log is printed but never spoken; the narration afterwards
+is the spoken version.
+
 `BP_MODEL` picks the model (default `qwen3.6:latest`), `OLLAMA_URL` the endpoint.
 
 ### Voice (optional)
@@ -213,6 +233,21 @@ ends it mid-fight, because the `r221b` loyalty die and what becomes of a helples
 Prince are yours to settle; the treasure of the dead is still rolled through
 `bp foe clear` (`r225`). Wounds are written to the save as each round ends.
 
+`bp fight quick` is the same dice with no sheet behind them — both sides given
+here, nothing read from a save and nothing written to one, for the fight you
+want to see resolved rather than recorded:
+
+```sh
+bp fight quick --us "Cal Arath" 8 9 --us Lancer 6 7 \
+               --them Goblin 4 5 3 4 --rout
+```
+
+A name, then combat skill and endurance, then wounds already taken; for the
+enemy, the wealth code and how many of them (`Goblin 1`, `Goblin 2`, …). The
+first `--us` is the Prince, since two of the ways a fight can end are about him
+(`r221b`, `r221c`); `--no-prince` for a fight he is not in. It is what `./play`'s
+`/fight` runs.
+
 Two dozen sections leave the size of a band to a die — *"You sight a band of
 Goblins in the distance. Roll two dice for the number in the band."* Read out as
 printed, that stops the sentence to ask for a roll and then leaves the number in
@@ -282,7 +317,7 @@ src/bp.py            the CLI: show / options / resolve / travel / treasure / say
 src/procedures.py    start / day / move / hex - the sequences, from procedures.json
 src/state.py         game / time / food / gold / party / eat / lodge / foe - the sheet
 src/creatures.py     how many of them there are: band sizes, rolled once and recorded
-src/combat.py        fight auto - a whole combat, round by round
+src/combat.py        fight auto / fight quick - a whole combat, round by round
 src/narrator.py      the game client: Ollama tool-use loop, output routing, speech
 src/extract.py       PDFs -> data/   (re-run if the PDFs change)
 src/tables.py        die-roll table parser used by extract.py
