@@ -47,6 +47,9 @@ roll, that is a new stop.
 - `["travel", "<terrain>", "<die>"]`, `["treasure", "<code>", "<die>"]`
 - `["show", "<id>"]` — a section; `["search", "<words>"]` when you don't know it
 - `["encounter"]` — how many of them there are, once it has been read out
+- `["time", "+1"]` — end the day. This runs the dusk checks: the e002 roll north
+  of the Tragoth, the meal, wages, lodging, then the date. Never announce a new
+  day without it — saying "we move to day 2" changes nothing and skips them all.
 
 Ask the tool for the procedure rather than recalling one. It knows the order.
 

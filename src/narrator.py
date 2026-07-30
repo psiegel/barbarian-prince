@@ -362,6 +362,193 @@ def run_setup(speaker: Speaker, referee: bool) -> str | None:
             f"bp with [\"day\", \"{hexid}\"] and take it from there.")
 
 
+# --- dusk -----------------------------------------------------------------
+#
+# The end of a day is six checks in a fixed order (procedures.json, `day`), and
+# forgetting them is silent: nobody eats, the guard never rolls, and the date
+# never moves. A narrator asked to remember them will sometimes narrate "we move
+# to Day 2" having done none of it. So the code walks them, the same way it
+# walks setup - the only judgment in the whole sequence is what to do when e002
+# actually fires, and that is handed back.
+
+SHEET_HEX = re.compile(r"\bhex (\d{4})\b")
+SHEET_DAY = re.compile(r"\bday (\d+) of\b")
+LODGING = ("town", "castle", "temple")
+E002_BONUS = ("0101", "1501")   # Ogon and Weshor: the guard looks hardest there
+
+# Which day's dusk has already been walked, so advancing time twice or calling
+# /dusk again after an e002 fight does not re-roll the guard or re-feed anyone.
+_done: dict[int, set[str]] = {}
+
+
+def sheet(args) -> tuple[int, str] | None:
+    """Day and hex, read back off the sheet rather than remembered."""
+    p = subprocess.run([*BP, "game", "-b"], capture_output=True, text=True)
+    both = p.stdout + p.stderr
+    d, h = SHEET_DAY.search(both), SHEET_HEX.search(both)
+    return (int(d.group(1)), h.group(1)) if d and h else None
+
+
+def features(hexid: str) -> list[str]:
+    path = ROOT / "data" / "map.json"
+    if not path.exists():
+        return []
+    return (json.loads(path.read_text())["hexes"].get(hexid) or {}).get("features") or []
+
+
+def run_dusk(speaker: Speaker, referee: bool) -> str | None:
+    """Walk the end-of-day checks. Returns a summary for the model, or None."""
+    now = sheet(None)
+    if now is None:
+        print(f"{ASIDE}No game is being tracked - nothing to close out.{RESET}")
+        return None
+    day, hexid = now
+    done = _done.setdefault(day, set())
+    feats = features(hexid)
+    told = []
+
+    if referee:
+        print(f"{DIM}[dusk: day {day}, hex {hexid}, features {feats or 'none'}]{RESET}")
+
+    # e002, north of the Tragoth: after events, before the meal. Whether the
+    # party is north of it is not in the map data, so the player says.
+    if "e002" not in done:
+        bonus = 1 if hexid in E002_BONUS else 0
+        prompt = (f"\n{ASIDE}End of day {day}. If you are north of the Tragoth, "
+                  f"roll 1d6 for e002 (subtract 3"
+                  f"{f', add 1 for {hexid}' if bonus else ''}).\n"
+                  f"  1d6, or 's' if you are south of the river > {RESET}")
+        while True:
+            try:
+                said = input(prompt).strip().lower()
+            except EOFError:
+                return None
+            if said in ("s", "south", "skip"):
+                done.add("e002")
+                break
+            if said.isdigit() and 1 <= int(said) <= 6:
+                score = int(said) - 3 + bonus
+                done.add("e002")
+                print(f"{DIM}  {said} - 3{f' + {bonus}' if bonus else ''} = {score}"
+                      f" - {'the guard finds you' if score >= 1 else 'no event'}"
+                      f" (e002){RESET}")
+                if score >= 1:
+                    run_bp(["options", "e002"], speaker, referee)
+                    return (f"It is the end of day {day} in hex {hexid}. The e002 "
+                            f"check scored {score}, so the guardsmen have found the "
+                            f"party - run that encounter now. The meal, any wages, "
+                            f"lodging and the date have NOT happened yet; once the "
+                            f"encounter is settled tell the player to type /dusk to "
+                            f"close the day out.")
+                break
+            print(f"{DIM}  1-6, or 's'.{RESET}")
+
+    if "eat" not in done:
+        run_bp(["eat", "--hex", hexid], speaker, referee)
+        done.add("eat")
+        told.append("the party ate")
+
+    if "pay" not in done:
+        run_bp(["pay"], speaker, referee)
+        done.add("pay")
+
+    if "lodge" not in done and any(f in LODGING for f in feats):
+        run_bp(["lodge"], speaker, referee)
+        done.add("lodge")
+        told.append("lodging was paid")
+
+    run_bp(["time", "+1"], speaker, referee)
+    return (f"Day {day} is closed out in hex {hexid}: the e002 check was made, "
+            f"{', '.join(told) or 'nothing was owed'}, and the date is now day "
+            f"{day + 1}. Tell the player what the new day looks like and ask for "
+            f"their action.")
+
+
+# --- loading a game -------------------------------------------------------
+
+SAVE_ROW = re.compile(r"^\*?\s*(\S+)\s+day \d+ of\b", re.M)
+
+
+def saved_games() -> tuple[list[str], str]:
+    """The save names, and the listing bp printed for them.
+
+    `bp game list` writes to stderr like every sheet command, and marks the
+    current game with a leading `*` - which is a column, not part of the name.
+    """
+    p = subprocess.run([*BP, "game", "list"], capture_output=True, text=True)
+    listing = (p.stdout + p.stderr).rstrip()
+    # Match the shape of a save row rather than "the first word", so that bp's
+    # own "no games recorded. bp game new <name> ..." is not read as a game
+    # called "no".
+    names = SAVE_ROW.findall(listing)
+    return names, listing
+
+
+def greeting(referee: bool) -> str:
+    """What the player sees before anything else: where they left off, and how
+    to pick up or begin."""
+    names, listing = saved_games()
+    out = [f"{ASIDE}Barbarian Prince{RESET}",
+           f"{DIM}{MODEL} via Ollama{' - referee view' if referee else ''}{RESET}",
+           ""]
+
+    choices = [("/start", "begin a new game")]
+    if names:
+        out += [f"{ASIDE}Saved games:{RESET}", listing, ""]
+        # Name a real save rather than a placeholder: the player can copy the
+        # line as printed instead of working out what goes in the angle brackets.
+        choices.append((f"/resume {names[0]}",
+                        "continue that game" if len(names) == 1
+                        else "or any other name above"))
+    else:
+        out += [f"{DIM}No saved games yet.{RESET}", ""]
+    choices.append(("/help", "every command"))
+
+    pad = max(len(c) for c, _ in choices)
+    out += [f"  {ASIDE}{c:<{pad}}{RESET}  {what}" for c, what in choices]
+    return "\n".join(out)
+
+
+def run_load(name: str, speaker: Speaker, referee: bool) -> str | None:
+    """Switch to a save and tell the narrator where it has just arrived."""
+    names, listing = saved_games()
+
+    if not name:
+        if not names:
+            print(f"{ASIDE}No saved games. /start begins one.{RESET}")
+        else:
+            print(f"{ASIDE}Saved games:{RESET}\n{listing}")
+            print(f"{ASIDE}Resume one with /resume <name>.{RESET}")
+        return None
+
+    p = subprocess.run([*BP, "game", "use", name], capture_output=True, text=True)
+    if p.returncode != 0:
+        print(f"{ASIDE}{(p.stderr or p.stdout).strip()}{RESET}")
+        return None
+
+    # Hand the model the sheet rather than a claim about it: it is about to
+    # narrate a game it has no memory of, and every number must come from disk.
+    state = subprocess.run([*BP, "game"], capture_output=True, text=True)
+    if referee:
+        print(f"{DIM}$ bp game use {name}{RESET}")
+    print(f"{ASIDE}Loaded {name}.{RESET}")
+    return (f"The player has loaded the saved game '{name}'. You have no memory "
+            f"of it; everything you need is below. Greet them briefly, say where "
+            f"they are and what day it is, and ask what they want to do. Do not "
+            f"invent anything that is not here.\n\n"
+            f"{(state.stdout + state.stderr).strip()}")
+
+
+COMMANDS = {
+    "/start": "begin a new game (walks setup in order)",
+    "/load": "/load <name> to resume a save, /load alone to list them",
+    "/dusk": "close out the day: e002, the meal, wages, lodging, the date",
+    "/referee": "toggle showing the tool calls and bp's stderr",
+    "/help": "this list",
+    "/quit": "stop",
+}
+
+
 # --- the loop -------------------------------------------------------------
 
 MAX_TOOL_ROUNDS = 12  # a turn that never stops calling tools is a bug, not a game
@@ -421,7 +608,14 @@ def take_turn(messages: list[dict], speaker: Speaker, referee: bool):
             args = (fn.get("arguments") or {}).get("args") or []
             if isinstance(args, str):        # some models emit a bare string
                 args = args.split()
-            result = run_bp([str(a) for a in args], speaker, referee)
+            args = [str(a) for a in args]
+            if args[:1] == ["time"] and args[1:2] in (["+1"], ["1"]):
+                summary = run_dusk(speaker, referee)
+                messages.append({"role": "tool", "tool_name": "bp", "content":
+                                 json.dumps({"stdout": "", "stderr": summary or
+                                             "the day was not closed out", "exit": 0})})
+                continue
+            result = run_bp(args, speaker, referee)
             messages.append({"role": "tool", "tool_name": "bp",
                              "content": result})
             delivered += json.loads(result).get("stdout", "")
@@ -449,9 +643,7 @@ def main() -> int:
     speaker = Speaker(enabled=not args.quiet)
     messages = [{"role": "system", "content": system_prompt()}]
 
-    print(f"{ASIDE}Barbarian Prince - {MODEL} via Ollama"
-          f"{' (referee view)' if args.referee else ''}\n"
-          f"/start to begin a new game, /quit to stop.{RESET}")
+    print(greeting(args.referee))
 
     try:
         while True:
@@ -462,6 +654,22 @@ def main() -> int:
                 break
             if said in ("/quit", "/exit"):
                 break
+            if said.split()[0] in ("/load", "/resume", "/saves"):
+                summary = run_load(" ".join(said.split()[1:]), speaker, args.referee)
+                if summary:
+                    messages.append({"role": "user", "content": summary})
+                    take_turn(messages, speaker, args.referee)
+                continue
+            if said == "/help":
+                for name, what in COMMANDS.items():
+                    print(f"{ASIDE}  {name:<10}{RESET} {what}")
+                continue
+            if said == "/dusk":
+                summary = run_dusk(speaker, args.referee)
+                if summary:
+                    messages.append({"role": "user", "content": summary})
+                    take_turn(messages, speaker, args.referee)
+                continue
             if said in ("/start", "/new"):
                 summary = run_setup(speaker, args.referee)
                 if summary:
@@ -473,6 +681,10 @@ def main() -> int:
                 print(f"{DIM}referee view {'on' if args.referee else 'off'}{RESET}")
                 continue
             if not said:
+                continue
+            if said.startswith("/"):
+                print(f"{ASIDE}No such command: {said.split()[0]}. "
+                      f"Try /help.{RESET}")
                 continue
             messages.append({"role": "user", "content": said})
             take_turn(messages, speaker, args.referee)
