@@ -47,6 +47,24 @@ NUM_CTX = int(os.environ.get("BP_NUM_CTX", "32768"))
 # Thinking costs tokens the player never sees or hears. Off unless asked for.
 THINK = os.environ.get("BP_THINK", "").lower() in ("1", "true", "yes")
 
+# A rules referee wants less entropy than a storyteller, and qwen3.6's Modelfile
+# ships storyteller defaults: temperature 1.0 and presence_penalty 1.5.
+#
+# The penalty is the worse of the two here. It docks tokens for having appeared
+# already, which is precisely wrong for a game whose proper nouns recur - over
+# 20 samples of one day's narration the default settings produced an invented
+# word every single time, including Aquilonia and Hyboria (Conan's setting, not
+# this one) and six different spellings of the town Ogon: Ogdon, Ogona, Ogond,
+# Ogone, Ogont, Ogonyi. The model was being penalised for saying "Ogon" twice.
+#
+# At 0.4 with no penalty the out-of-vocabulary words were almost all ordinary
+# inflections. 0.4 rather than 0 so that seventy days of narration do not come
+# out word-for-word identical.
+TEMPERATURE = float(os.environ.get("BP_TEMP", "0.4"))
+PRESENCE_PENALTY = float(os.environ.get("BP_PRESENCE", "0.0"))
+OPTIONS = {"num_ctx": NUM_CTX, "temperature": TEMPERATURE,
+           "presence_penalty": PRESENCE_PENALTY}
+
 DIM, PROSE, ASIDE, RESET = "\033[2m", "\033[36m", "\033[33m", "\033[0m"
 
 
@@ -223,7 +241,7 @@ def stream_chat(messages: list[dict], speaker: Speaker) -> dict:
         "tools": [TOOL],
         "stream": True,
         "think": THINK,
-        "options": {"num_ctx": NUM_CTX},
+        "options": OPTIONS,
     }
     req = urllib.request.Request(OLLAMA_URL, data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
@@ -433,13 +451,22 @@ def run_dusk(speaker: Speaker, referee: bool) -> str | None:
                       f" - {'the guard finds you' if score >= 1 else 'no event'}"
                       f" (e002){RESET}")
                 if score >= 1:
-                    run_bp(["options", "e002"], speaker, referee)
+                    # Hand back what bp printed, not just the news that it
+                    # fired. A director that runs a command and keeps the output
+                    # to itself leaves the narrator describing an encounter it
+                    # has never seen, which is how you get atmosphere instead of
+                    # the three choices the player is waiting for.
+                    out = json.loads(run_bp(["options", "e002"], speaker, referee))
                     return (f"It is the end of day {day} in hex {hexid}. The e002 "
                             f"check scored {score}, so the guardsmen have found the "
-                            f"party - run that encounter now. The meal, any wages, "
-                            f"lodging and the date have NOT happened yet; once the "
-                            f"encounter is settled tell the player to type /dusk to "
-                            f"close the day out.")
+                            f"party. The prose below has already been shown and "
+                            f"spoken - do not repeat it. Offer the player the "
+                            f"choices and ask for the die.\n\n"
+                            f"{out['stdout'].strip()}\n\n"
+                            f"[referee only]\n{out['stderr'].strip()}\n\n"
+                            f"The meal, any wages, lodging and the date have NOT "
+                            f"happened yet; once the encounter is settled tell the "
+                            f"player to type /dusk to close the day out.")
                 break
             print(f"{DIM}  1-6, or 's'.{RESET}")
 
@@ -467,6 +494,22 @@ def run_dusk(speaker: Speaker, referee: bool) -> str | None:
 # --- loading a game -------------------------------------------------------
 
 SAVE_ROW = re.compile(r"^\*?\s*(\S+)\s+day \d+ of\b", re.M)
+# The party table is column-aligned and names contain spaces, so split on the
+# gaps rather than on whitespace: "Cal Arath  player  8 ..." is one name, not two.
+PARTY_ROW = re.compile(r"^\s+(\S.*?)\s{2,}(player|follower|mount)\b", re.M)
+
+
+def roster() -> tuple[str | None, list[str]]:
+    """(the player's own name, everyone else travelling with them).
+
+    Read rather than described: told only that a table exists, the model called
+    the Prince his own companion - "your companion Cal Arath stands ready beside
+    you" - because it never looked at the `kind` column.
+    """
+    p = subprocess.run([*BP, "party"], capture_output=True, text=True)
+    rows = PARTY_ROW.findall(p.stdout + p.stderr)
+    player = next((n for n, k in rows if k == "player"), None)
+    return player, [f"{n} ({k})" for n, k in rows if k != "player"]
 
 
 def saved_games() -> tuple[list[str], str]:
@@ -528,14 +571,30 @@ def run_load(name: str, speaker: Speaker, referee: bool) -> str | None:
 
     # Hand the model the sheet rather than a claim about it: it is about to
     # narrate a game it has no memory of, and every number must come from disk.
-    state = subprocess.run([*BP, "game"], capture_output=True, text=True)
+    #
+    # The brief line plus the party, not the full sheet. `bp game` ends with the
+    # band sizes rolled today - enemies - and a model reading straight through
+    # turned "e002 guardsmen: 4 mercenary guardsmen" into four loyal companions.
+    # Saying "these are enemies, not companions" did not fix it; removing them
+    # did. They are not needed here anyway: bp remembers a band's size itself and
+    # replays it whenever the section is read again, which is the whole point of
+    # recording it. Ambiguity the model cannot resolve is better deleted than
+    # annotated.
+    state = subprocess.run([*BP, "game", "-b"], capture_output=True, text=True)
+    player, others = roster()
     if referee:
         print(f"{DIM}$ bp game use {name}{RESET}")
     print(f"{ASIDE}Loaded {name}.{RESET}")
+    who = (f"The player IS {player}, the Barbarian Prince - not a companion of "
+           f"his. " if player else "")
+    who += (f"Travelling with him: {', '.join(others)}." if others
+            else "He travels alone; there is nobody else in the party.")
     return (f"The player has loaded the saved game '{name}'. You have no memory "
-            f"of it; everything you need is below. Greet them briefly, say where "
-            f"they are and what day it is, and ask what they want to do. Do not "
-            f"invent anything that is not here.\n\n"
+            f"of it and must not invent any part of it - no companions, no "
+            f"places, no events that are not written below. Greet them briefly, "
+            f"say where they are and what day it is, and ask what they want to "
+            f"do.\n\n"
+            f"{who}\n\n"
             f"{(state.stdout + state.stderr).strip()}")
 
 
