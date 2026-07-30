@@ -9,6 +9,7 @@ data/procedures.json and data/travel.json; every step cites the section it is
 carrying out, so a ruling can be checked against the printed page.
 """
 
+import contextlib
 import re
 import sys
 
@@ -314,7 +315,7 @@ def cmd_treasure(book, args) -> int:
                   file=sys.stderr)
             return 1
         print()
-        print(book.fmt_section(sec, note))
+        book.emit_section(sec, note)
     return 0
 
 
@@ -323,20 +324,29 @@ def cmd_treasure(book, args) -> int:
 
 def show_steps(title: str, steps: list[dict], tail: list[str] | None = None,
                first: int = 1) -> None:
-    """Print an ordered procedure. One line per thing the player must do."""
-    print(title)
-    print("=" * len(title))
+    """Print an ordered procedure. One line per thing the narrator must do.
+
+    All of this goes to stderr. A procedure is scaffolding, not prose: it cites
+    rules, names the next command, and says where to stop. Read out, it spoils
+    the sequence and is unlistenable - "read this passage aloud, then stop, bp
+    show e001 premise" is not a sentence anybody should hear. The prose it
+    points at arrives on stdout when the narrator runs the command it names.
+    """
+    out = sys.stderr
+    print(title, file=out)
+    print("=" * len(title), file=out)
     for i, s in enumerate(steps, first):
         cite = f"  ({s['cite']})" if s.get("cite") else ""
-        print(f"\n{i}. {s['what']}{cite}")
+        print(f"\n{i}. {s['what']}{cite}", file=out)
         if s.get("die"):
-            print(f"   roll {s['die']}" + (f", {s['need']}" if s.get("need") else ""))
+            print(f"   roll {s['die']}" + (f", {s['need']}" if s.get("need") else ""),
+                  file=out)
         for line in s.get("notes", []):
-            print(f"   {line}")
+            print(f"   {line}", file=out)
         if s.get("resolve"):
-            print(f"   -> {s['resolve']}")
+            print(f"   -> {s['resolve']}", file=out)
     for line in tail or []:
-        print(f"\n{line}")
+        print(f"\n{line}", file=out)
 
 
 # --- bp start -------------------------------------------------------------
@@ -353,7 +363,7 @@ def setup_steps(book) -> list[dict]:
                 # first, and `resolve` is what to run once they have answered.
                 # Passage anchors (e.g. e001#premise) are prose the AI should narrate.
                 step["notes"].insert(0, f"read this passage aloud, then stop: "
-                                        f"bp speak {s['read']}")
+                                        f"bp show {s['read']}")
             else:
                 step["resolve"] = step["resolve"] or f"bp show {s['read']}"
         if s.get("fixed"):
@@ -371,11 +381,15 @@ def cmd_start(book, args) -> int:
         if not where:
             print(f"the caravan table is 1-6; got {args.roll}", file=sys.stderr)
             return 1
+        # Where the caravan left them is the player's to hear; what to run next
+        # is the narrator's, and read aloud it is three commands in a row.
         print(f"e001 caravan on {args.roll}: you are in {where}")
-        print("\nNow read the closing paragraph: bp show e001#dawn")
+        print("\nNow read the closing paragraph: bp show e001#dawn",
+              file=sys.stderr)
         print("Then write the sheet down before day 1: "
-              "bp game new <name> --wits <w&w> --gold <gold> --hex <hex>")
-        print("Then day 1 begins. Choose an action: bp day")
+              "bp game new <name> --wits <w&w> --gold <gold> --hex <hex>",
+              file=sys.stderr)
+        print("Then day 1 begins. Choose an action: bp day", file=sys.stderr)
         return 0
 
     steps = setup_steps(book)
@@ -472,6 +486,17 @@ def cmd_hex(book, args) -> int:
 
 
 def cmd_day(book, args) -> int:
+    """The day's actions and the dusk checklist - all of it referee scaffolding.
+
+    Every line here is a rule cite, a filter or a `-> bp ...` follow-on. Read
+    aloud it is a menu with citations, not something a DM says, so the whole
+    body prints to stderr and the narrator turns it into a question.
+    """
+    with contextlib.redirect_stdout(sys.stderr):
+        return _day_plan(book, args)
+
+
+def _day_plan(book, args) -> int:
     day = book.procedures["day"]
     hexes = [h.lower() for h in (args.hex_type or [])]
 
@@ -706,21 +731,26 @@ def cmd_move(book, args) -> int:
 
     show_steps(f"Move: {label_a} -> {label_b}{how}", steps, tail)
 
+    # The provenance footer is the referee's half too - where each fact came
+    # from, and where to stop. Read out, it is noise between the player and the
+    # journey; on stderr it is the check that catches an invented river.
+    err = sys.stderr
     known = source.get("river") == "map" and source.get("road") == "map"
-    print("\nThis plan rests on:" if known else "\nThis plan assumes:")
-    print(f"  leaving {label_a}, entering {label_b}")
+    print("\nThis plan rests on:" if known else "\nThis plan assumes:", file=err)
+    print(f"  leaving {label_a}, entering {label_b}", file=err)
     for kind, label in (("river", "river on the hexside between them"),
                         ("road", "leaving by road")):
         got = "yes" if getattr(args, kind) else "NO"
         why = source.get(kind)
         note = (" - from the map data" if why == "map"
                 else f" - {why}" if why else " - from what you were told")
-        print(f"  {label}: {got}{note}")
+        print(f"  {label}: {got}{note}", file=err)
     print(f"  flying, not short-hopping: {'yes' if args.airborne else 'NO'} "
-          f"- from what you were told")
+          f"- from what you were told", file=err)
     if not known:
         print("  Anything not read from the map is a fact only the player can "
-              "see, and a wrong one silently produces a plausible, wrong plan.")
+              "see, and a wrong one silently produces a plausible, wrong plan.",
+              file=err)
     print("\nStop after each check and let the player roll. Do not read the "
-          "outcomes ahead of them.")
+          "outcomes ahead of them.", file=err)
     return 0

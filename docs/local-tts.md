@@ -1,6 +1,6 @@
 # Local text-to-speech
 
-`bp speak` supports three backends. It picks one automatically, but you can force
+`bp say` supports three backends. It picks one automatically, but you can force
 the choice with `--backend` or `BP_TTS`.
 
 | Backend | What it is | Cost | Quality |
@@ -80,7 +80,7 @@ real time on an M-series chip, so a long section takes a few seconds.
 
 ## Run the server
 
-`bp speak` talks to a server rather than loading the model per call — that avoids
+`bp say` talks to a server rather than loading the model per call — that avoids
 paying model load time on every section.
 
 ```sh
@@ -110,16 +110,16 @@ KOKORO_VOICE=bm_george
 # KOKORO_FORMAT=wav      # server defaults to mp3; set this to override
 ```
 
-`bp` names the saved file from the response's content-type, so `--save` produces a
+`bp` names the temp file from the response's content-type, so playback gets a
 correctly-labelled `.mp3` or `.wav` whichever the server chooses.
 
 Then:
 
 ```sh
-./bp speak e001                      # uses whatever BP_TTS says
-./bp speak e001 --backend kokoro     # force local
-./bp speak e001 --voice bm_lewis     # override the voice for one call
-./bp speak e001 --backend say        # no model at all
+./bp show e001 | ./bp say --stdin              # uses whatever BP_TTS says
+./bp say --backend kokoro "the Prince rides"   # force local
+./bp say --voice bm_lewis "a swordsman"        # override the voice for one call
+./bp say --backend say "no model at all"
 ```
 
 You can leave `BP_TTS` unset entirely: with the server running, `auto` finds it.
@@ -143,7 +143,7 @@ To audition a few quickly:
 
 ```sh
 for v in bm_george bm_daniel bm_lewis am_michael; do
-  echo ">> $v"; ./bp speak r316 --backend kokoro --voice "$v"
+  echo ">> $v"; ./bp show r316 | ./bp say --stdin --backend kokoro --voice "$v"
 done
 ```
 
@@ -193,7 +193,7 @@ against the running server are fast.
 
 **Wrong pronunciation of rule numbers** — that's this repo, not Kokoro. `bp` rewrites
 `r203` to "rule 203" before synthesis; see `to_speech()` in `tools/bp.py`, and check
-the exact text with `./bp speak <id> --text-only`.
+the exact text with `./bp show <id>`.
 
 ## VibeVoice, if you still want it
 

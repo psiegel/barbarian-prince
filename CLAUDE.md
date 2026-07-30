@@ -85,7 +85,7 @@ The PDFs are slow and lossy to read. Everything is extracted into `data/`:
 ./bp refs r220           # what links out of a section, and what links into it
 ./bp roll 2d6            # dice, only when the player asks you to roll
 ./bp list e              # every event id and title
-./bp speak e001          # read a section aloud (see Voice below)
+./bp say                 # read stdin aloud; the Stop hook does this for you
 ./bp encounter           # how many of them there are, once it has been read out
 ```
 
@@ -235,7 +235,7 @@ band." **You do not ask for that roll, and you never pick the number yourself.**
 > You sight a band of 8 Goblins in the distance, each is combat skill 3, endurance
 > 3, wealth 1.
 
-That happens in `show`, `speak`, `options`, `travel` and the follow-on section
+That happens in `show`, `options`, `travel` and the follow-on section
 `resolve` prints, so the count is the same wherever the party met them. Underneath
 the prose, `bp` prints the count, the dice that produced it, and the `bp foe add`
 line to go with it — run that line as printed. Do not retype the number from
@@ -295,7 +295,8 @@ rather than narrating them.
 ## The turn protocol — this is the important part
 
 **Never read a table out.** Tables are for you to resolve, not for the player to
-hear. Reading the outcomes aloud spoils every branch they didn't take.
+hear. Reading the outcomes aloud spoils every branch they didn't take. `show` and
+`options` already strip them, so this only bites if you go looking with `--raw`.
 
 Stop at each decision point and hand control back. One stop per message:
 
@@ -461,39 +462,42 @@ the reliable way to catch them, but watch for them yourself too:
 colour. Never change what a section actually says — the rules are the rules, and a
 wrong ruling costs the player their game.
 
-## Voice
+## One text, and how it gets spoken
 
-`./bp speak <id>` reads a section aloud, normalizing the text first ("r203" →
-"rule 203", table columns → commas). `--save` keeps the audio in `audio/`;
-`--text-only` prints the normalized text without playing it. It takes a passage
-too — `./bp speak e001#caravan` — and a mid-section passage doesn't re-announce
-the title, so the three parts of `e001` play as one continuous reading.
+There is no `bp speak`. `bp show` prints the prose a DM would say — unwrapped,
+"rule 330" rather than "r330", and with the outcome tables stripped out — and a
+`Stop` hook (`tools/speak_hook.py`) reads your message aloud when the turn ends.
+So the player hears what is on screen, including your questions and rulings, and
+the two can never drift apart.
 
-Three backends, chosen automatically unless `BP_TTS` or `--backend` says otherwise:
+**stdout is what the player hears. stderr is what you need.** Section ids, errata,
+`-> r330`, `-> then:` and the band-size notes all go to stderr, so they cannot be
+read out by accident. Read stderr — it is where the id and the follow-ons are.
 
-- `kokoro` — a local Kokoro-82M server (free, offline). Used when something is
-  listening on `KOKORO_URL`, default `http://127.0.0.1:8000/v1/audio/speech`.
-- `elevenlabs` — the hosted API, when `ELEVENLABS_API_KEY` is set.
-- `say` — the macOS built-in, always available as a last resort.
+**Relay stdout verbatim.** This is the rule the whole arrangement rests on. The
+player hears your words, not `bp`'s, so paste the prose `show` printed rather than
+summarizing it, and never recite a section from your own knowledge of the book. If
+data is missing, say so and suggest `python3 tools/extract.py`. Add your colour
+around the quoted prose, not inside it.
 
-Settings live in `.env` (git-ignored, loaded automatically). Nothing hard-fails: an
-unreachable backend falls back to `say` and prints why. If the player wants local
-voice and the server isn't running, the fix is `mlx_audio.server --port 8000` —
-setup is in `docs/local-tts.md`.
+**Write for the ear.** The hook strips code spans, bullets and headings before
+speaking, so a command mid-sentence becomes a hole ("Run for the choices"). Keep
+commands out of narration and put questions in plain sentences.
 
-**Voice is always used when a section has audio.** Never offer to print text instead —
-the player wants voice. If a section can be spoken (`./bp speak <id>`), call it.
-If there's no voice backend available, say so (with why) but still play the text through
-whatever backend exists; don't fall back to printing prose as a substitute.
+**`--raw` means "exactly what the source printed"** — the booklet's layout, the
+outcome tables, the ids. That is the referee's view: use it to adjudicate the
+sections with no machine-readable table, and never read it out. `--no-counts` is
+separate and orthogonal: it leaves the band-size sentence as the booklet wrote it.
+`--raw --no-counts` is the true booklet text.
 
-**"Read aloud" vs "look up".** When a step or instruction says "read ... aloud", use
-`./bp speak <id>`. When it says "look up", "show", or just names a section id, `./bp show`
-is fine. For every encounter, travel step and day check that involves prose — always voice
-first.
-
-**Never recite prose from memory.** All section text must come from `./bp show` (for lookup)
-or `./bp speak` (for narration). Never pull text from your own knowledge of the source book.
-If `bp` is missing data for a section, say so and suggest re-running `python3 tools/extract.py`.
+Voice is a preference, not a feature. `BP_TTS` in `.env` picks the backend —
+`kokoro` (a local Kokoro-82M server on `KOKORO_URL`), `elevenlabs` (when
+`ELEVENLABS_API_KEY` is set), `say` (the macOS built-in), or `off`. `auto` uses
+whatever is already running. Nothing hard-fails: an unreachable backend falls back
+to `say`, and the hook exits silently rather than breaking a turn. If the player
+wants local voice and the server isn't running, the fix is `mlx_audio.server
+--port 8000` — setup is in `docs/local-tts.md`. `./bp say` speaks stdin, which is
+all the hook does.
 
 ## Regenerating
 

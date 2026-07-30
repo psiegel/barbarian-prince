@@ -76,10 +76,16 @@ that are purely mechanical.
 
 ### Voice (optional)
 
-`./bp speak` has three backends and picks one automatically: a local Kokoro server
-if one is listening, else ElevenLabs if a key is set, else the macOS `say` command.
-It never hard-fails — an unreachable backend falls back to `say` and says why. With
-no configuration at all you get `say`, and the rest of the CLI is unaffected.
+`bp show` prints the prose a DM would say, and a `Stop` hook
+(`tools/speak_hook.py`, wired in `.claude/settings.json`) reads the narrator's reply
+aloud through `./bp say`. So the spoken game and the printed game are the same text,
+and the questions and rulings get voiced too, not just the booklet.
+
+Four backends, picked automatically: a local Kokoro server if one is listening, else
+ElevenLabs if a key is set, else the macOS `say` command — or `off`. Set `BP_TTS` in
+`.env` to force one. It never hard-fails: an unreachable backend falls back to `say`
+and says why, and the hook exits quietly rather than breaking a turn. With no
+configuration at all you get `say`, and the rest of the CLI is unaffected.
 
 Settings live in `.env`, which is git-ignored and loaded automatically. Start from
 the annotated template, which documents every option:
@@ -120,7 +126,8 @@ permission, plus voices-read if you want to list voices. Free accounts can only 
 ./bp refs r220             # cross-references in and out
 ./bp roll 2d6              # dice
 ./bp list e                # all event ids and titles
-./bp speak e001            # read aloud  (--save keeps the mp3, --text-only prints)
+./bp show e003 --raw       # the source layout: tables, ids, refs (referee only)
+./bp say                   # read stdin aloud (what the Stop hook calls)
 ```
 
 And the character sheet for a game in progress:
@@ -174,7 +181,7 @@ Two dozen sections leave the size of a band to a die — *"You sight a band of
 Goblins in the distance. Roll two dice for the number in the band."* Read out as
 printed, that stops the sentence to ask for a roll and then leaves the number in
 nobody's hands, which is how eight goblins becomes three goblins two messages
-later. So `show`, `speak`, `options` and `travel` read it with the number already
+later. So `show`, `options` and `travel` read it with the number already
 in it — *"You sight a band of 8 Goblins in the distance, each is combat skill 3,
 endurance 3, wealth 1"* — rolling it once, filing it in the save against the day
 and hex it was rolled for, and printing the `bp foe add … --count 8` line to go
@@ -182,7 +189,7 @@ with it. Every later read of that section on that day in that hex says eight, an
 `bp foe add` refuses a different number rather than let the sheet and the story
 disagree. A new day or a new hex is a new band. `bp encounter` lists what has been
 counted, `bp encounter set e052 goblins 5` if you rolled it yourself, and
-`--raw` on `show` or `speak` reads the booklet's own wording instead.
+`--no-counts` reads the booklet's own wording instead.
 
 Creature counts only: wounds suffered, days lost, hexes blown off course and gold
 demanded in a bribe are consequences you roll for yourself, and are read exactly

@@ -16,7 +16,7 @@
   bp roll 2d6              roll dice
   bp refs r220             what a section links to, and what links to it
   bp list r                list section ids (optionally filtered by prefix)
-  bp speak e001            read a section aloud (local Kokoro, ElevenLabs, or `say`)
+  bp say                   read stdin aloud (local Kokoro, ElevenLabs, or `say`)
 
 the character sheet - the numbers this game is played with, kept in saves/:
 
@@ -41,6 +41,7 @@ import re
 import random
 import subprocess
 import sys
+import tempfile
 import http.client
 import socket
 import urllib.error
@@ -55,7 +56,6 @@ import state
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
-AUDIO = ROOT / "audio"
 
 ID_RE = re.compile(r"^[re]\d{3}$", re.IGNORECASE)
 
@@ -177,7 +177,7 @@ class Book:
         lines.append(f"{'Rafting':<14}{'never':<7}{'10+':<7}{'see r230':<38}{'-':<7}-")
         return "\n".join(lines)
 
-    def fmt_section(self, sec: dict, note: str | None = None) -> str:
+    def emit_section(self, sec: dict, note: str | None = None) -> None:
         """So play.py can print a section without importing this module back.
 
         Band sizes are substituted here too: a section is a section however the
@@ -185,7 +185,7 @@ class Book:
         not read differently from the same event reached through `bp show`.
         """
         sec, counts = creatures.apply(sec)
-        return "\n".join([fmt(sec, note), *([""] + counts if counts else [])])
+        emit(sec, note, counts=counts)
 
     def incoming(self, sid: str) -> list[str]:
         sid = self.normalize(sid)
@@ -289,14 +289,37 @@ def fmt(sec: dict, note: str | None = None) -> str:
     return "\n".join(out)
 
 
-# --- speech ---------------------------------------------------------------
+# --- prose ----------------------------------------------------------------
+#
+# There is one rendering of a section, not a printed one and a spoken one. The
+# player's ear and the player's screen get the same words, so stdout carries only
+# what a DM would say out loud and everything the referee needs - ids, errata,
+# cross-references, band-size notes - goes to stderr, where it can never be read
+# aloud by mistake. `--raw` prints the source layout instead, for adjudicating.
 
 NUMBER_WORD = (
     r"(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
     r"fifteen|twenty|twenty-five|thirty|fifty|hundred)"
 )
 
-SPEECH_SUBS = [
+# Some sections print their outcome table inline, mid-sentence, as a run of
+# shorthand: "then roll two dice 2-e012; 3-e012; 4-e011; ...". It is a table in
+# every sense - 39 sections do it, 37 of them with a parsed table behind them -
+# so it comes out with the rest of the tables, leaving "then roll two dice." for
+# the player and the branches for `resolve`. Items look like "4-e011",
+# "5,6-nothing" and "12(or more)-r300", and wrap across lines, which is why this
+# runs on a joined paragraph rather than a source line.
+# The target is usually a bare id, but e068 writes "5,6-see e068a" - a lettered
+# tail paragraph, reached through a word - and that still names which rolls get it.
+OUTCOME_TARGET = r"(?:see\s+|read\s+)?(?:[re]\d{3}[a-f]?(?:\s+below)?|nothing|no\s+effect)"
+OUTCOME_ITEM = (r"\d{1,2}(?:\s*(?:or\s+(?:less|more)|\([^)]*\)))?(?:\s*,\s*\d{1,2})*"
+                rf"\s*[-–]\s*{OUTCOME_TARGET}\b")
+INLINE_OUTCOMES_RE = re.compile(
+    # A trailing ';' or ',' goes with the run; a '.' is the sentence's own and
+    # stays, or "then roll two dice." loses its full stop.
+    rf"{OUTCOME_ITEM}(?:\s*[;,]\s*{OUTCOME_ITEM})*\s*[;,]?", re.I)
+
+PROSE_SUBS = [
     # "add one (+1)" / "subtract three (-3)" - the parenthetical just restates
     # the word before it, so it reads as a stutter. Amounts like "bribe (15)"
     # and hex codes like "(0101)" are not preceded by a number word, so survive.
@@ -314,48 +337,135 @@ SPEECH_SUBS = [
 
 # A line with two or more runs of whitespace is laid-out table data, not prose.
 TABLE_LINE_RE = re.compile(r"\S[ \t]{2,}\S.*?[ \t]{2,}\S")
+# ...but r220's wound rows have only one gap ("      14        Three wounds"), so
+# a die-roll row leading its line counts too. This is the same shape intro_text
+# cuts a table off at, plus a sign: r220's first row is "-1,3,5,8,11  One wound".
+# Without this, r220 reads its combat table aloud.
+ROW_LINE_RE = re.compile(r"^\s{2,}[-+]?\d{1,2}\b")
+# A "die roll" column header, for the two grids whose rows are too sparsely
+# spaced to look like tables (r226, r281). Checked against all 252 sections: all
+# 24 lines that match are table headers, so this drops no prose anywhere.
+DIE_HEADER_RE = re.compile(r"^\s*die\s+rolls?\b", re.I)
 
 
-def to_speech(sec: dict) -> str:
-    """Flatten a section into something that sounds right read aloud.
+def paragraphs(body: str) -> list[str]:
+    """Split a section body into spoken paragraphs, dropping laid-out tables.
 
-    pdftotext hard-wraps prose, so naively turning newlines into sentence breaks
-    chops sentences in half. Wrapped prose lines are rejoined with a space;
-    only blank lines and table rows become spoken pauses.
+    pdftotext hard-wraps prose, so naively treating newlines as breaks chops
+    sentences in half: wrapped lines are rejoined with a space, and only blank
+    lines end a paragraph. Table rows are dropped rather than flattened - the
+    outcomes are the referee's to resolve through `options`/`resolve`, and
+    reading a column of them out hands over every branch the player didn't take.
     """
-    # A mid-section passage carries speech_title "" - it continues something the
-    # player has already heard announced, so re-reading the title jars.
-    title = sec.get("speech_title", sec["title"])
-    chunks: list[str] = [title.rstrip(".") + "."] if title else []
-    prose: list[str] = []
+    out: list[str] = []
+    prose: list[tuple[bool, str]] = []
+    in_table = False
 
     def flush():
         if prose:
-            chunks.append(" ".join(prose))
+            out.append(" ".join(t for _, t in prose))
             prose.clear()
 
-    for raw in sec["body"].split("\n"):
+    for raw in body.split("\n"):
         line = raw.strip()
-        if not line:
+        indented = raw[:2].strip() == ""
+        if TABLE_LINE_RE.search(raw) or ROW_LINE_RE.match(raw) or DIE_HEADER_RE.match(raw):
+            # A row's text can wrap ABOVE its die number - e160 prints the number
+            # on a line of its own, after the outcome it belongs to - so indented
+            # lines still pending belong to this row, not to the prose before it.
+            while prose and prose[-1][0]:
+                prose.pop()
+            in_table = True
             flush()
-        elif TABLE_LINE_RE.search(raw):
+        elif not line:
             flush()
-            # Columns become comma pauses so the row reads as a list.
-            chunks.append(re.sub(r"[ \t]{2,}", ", ", line))
+        elif in_table and indented:
+            # A table row's own wrapped text. e053 is the case that needs this:
+            # its rows wrap over two and three lines, and its die numbers sit on
+            # lines of their own between them, so dropping only the numbered line
+            # leaves the outcomes behind as orphan sentences.
+            flush()
         else:
-            prose.append(re.sub(r"[ \t]{2,}", " ", line))
+            # Back out at the left margin: the table is over. e003's footnote
+            # starts there, which is how the conditional escape survives.
+            in_table = False
+            prose.append((indented, re.sub(r"[ \t]{2,}", " ", line)))
     flush()
+    return out
 
-    # Each chunk carries its own terminator, so joining adds no stray periods
-    # after a line that already ends in a colon.
-    text = " ".join(c if c.endswith((".", ":", "!", "?")) else c + "."
-                    for c in chunks if c)
-    for pat, rep in SPEECH_SUBS:
+
+def polish(text: str) -> str:
+    """One paragraph, said the way a person would say it.
+
+    Whitespace is collapsed horizontally only: the paragraph breaks around this
+    are what stop the prose reading as one wall of text on screen.
+    """
+    # A footnote's marker is a typographic hook back to a table column that is no
+    # longer printed, and "asterisk if your party has winged mounts" is not a
+    # sentence. The footnote itself is a conditional escape the player needs.
+    # Footnote markers: at the start of the paragraph, and again where a second
+    # footnote (e007 has two) runs on after the first one's full stop.
+    text = re.sub(r"^\*+\s*", "", text.lstrip())
+    text = re.sub(r"(?<=[.:])\s*\*+\s*", " ", text)
+    text = INLINE_OUTCOMES_RE.sub("", text)
+    for pat, rep in PROSE_SUBS:
         text = re.sub(pat, rep, text)
-    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    # Cutting a run out mid-sentence leaves the punctuation stranded: "roll two
+    # dice ." and "roll one die: ." both want to end at the instruction.
+    text = re.sub(r"\s+([.;,:])", r"\1", text)
+    text = re.sub(r":\s*\.", ".", text)
     text = re.sub(r"\.\s*(?=[.,;])", "", text)
     text = re.sub(r"(?:\.\s*){2,}", ". ", text)
     return text.strip()
+
+
+def prose_text(body: str, title: str = "") -> str:
+    # Each paragraph carries its own terminator, so nothing adds a stray period
+    # after a line that already ends in a colon.
+    chunks = ([title.rstrip(".") + "."] if title else []) + paragraphs(body)
+    said = [polish(c) for c in chunks if c.strip()]
+    return "\n\n".join(
+        c if c.endswith((".", ":", "!", "?")) else c + "." for c in said if c)
+
+
+def to_prose(sec: dict) -> str:
+    # A mid-section passage carries speech_title "" - it continues something the
+    # player has already heard announced, so re-reading the title jars.
+    return prose_text(sec["body"], sec.get("speech_title", sec["title"]))
+
+
+def aside(sec: dict, note: str | None = None) -> str:
+    """The referee's half: which section this is, and where it leads."""
+    head = f"{sec['id']} {sec['title']}"
+    if sec.get("part"):
+        head += f"  [part {sec['part_no']} of {sec['part_count']}]"
+    out = [head]
+    if note:
+        out.append(f"[errata] {note}")
+    if sec.get("what"):
+        out.append(f"({sec['what']})")
+    if sec.get("refs"):
+        out.append(f"-> {' '.join(sec['refs'])}")
+    if sec.get("then"):
+        out.append(f"-> then: {sec['then']}")
+    return "\n".join(out)
+
+
+def emit(sec: dict, note: str | None = None, raw: bool = False,
+         counts: list[str] | None = None) -> None:
+    """Print a section: prose to stdout, everything else to stderr."""
+    # stdout is block-buffered when piped, so without this the referee's lines
+    # jump ahead of the prose they belong to in a captured transcript.
+    sys.stdout.flush()
+    if raw:
+        print(fmt(sec, note))
+    else:
+        print(aside(sec, note), file=sys.stderr)
+        sys.stderr.flush()
+        print(to_prose(sec))
+        sys.stdout.flush()
+    creatures.show_notes(counts or [], sys.stderr)
 
 
 # Local TTS speaks to an OpenAI-compatible /v1/audio/speech endpoint, which is
@@ -475,16 +585,21 @@ def speak_elevenlabs(text: str, voice: str | None) -> tuple[bytes, str] | None:
     return None
 
 
-def speak(sec: dict, voice: str | None, save: bool, backend: str | None = None) -> int:
-    text = to_speech(sec)
+def speak(text: str, voice: str | None = None, backend: str | None = None) -> int:
+    """Say some text. Knows nothing about sections - `bp say` is fed prose that
+    has already been rendered, whether by a command or by the Stop hook."""
+    text = text.strip()
+    if not text:
+        return 0
     chosen = pick_backend(backend)
-
+    if chosen == "off":
+        return 0
     if chosen == "say":
         return say_fallback(text)
 
     synth = {"kokoro": speak_kokoro, "elevenlabs": speak_elevenlabs}.get(chosen)
     if synth is None:
-        print(f"unknown TTS backend {chosen!r}. use: kokoro, elevenlabs, say",
+        print(f"unknown TTS backend {chosen!r}. use: kokoro, elevenlabs, say, off",
               file=sys.stderr)
         return 1
 
@@ -493,15 +608,13 @@ def speak(sec: dict, voice: str | None, save: bool, backend: str | None = None) 
         return say_fallback(text, f"{chosen} unavailable")
 
     audio, ext = result
-    AUDIO.mkdir(exist_ok=True)
-    out = AUDIO / f"{sec['id'].replace('#', '-')}.{ext}"
-    out.write_bytes(audio)
-    rc = subprocess.run(["afplay", str(out)]).returncode
-    if save:
-        print(f"saved {out}", file=sys.stderr)
-    else:
-        out.unlink(missing_ok=True)
-    return rc
+    with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as f:
+        f.write(audio)
+        out = f.name
+    try:
+        return subprocess.run(["afplay", out]).returncode
+    finally:
+        os.unlink(out)
 
 
 # --- commands -------------------------------------------------------------
@@ -542,9 +655,8 @@ def cmd_show(book: Book, args) -> int:
             print(e, file=sys.stderr)
             rc = 1
             continue
-        sec, counts = creatures.apply(sec, raw=args.raw)
-        print(fmt(sec, note))
-        creatures.show_notes(counts)
+        sec, counts = creatures.apply(sec, no_counts=args.no_counts)
+        emit(sec, note, raw=args.raw, counts=counts)
     return rc
 
 
@@ -626,7 +738,7 @@ def cmd_travel(book: Book, args) -> int:
         sec = book.get(ref)
         if sec:
             print()
-            print(book.fmt_section(sec))
+            book.emit_section(sec)
         return 0
 
     rolls = book.travel["refs"][ref]
@@ -643,7 +755,7 @@ def cmd_travel(book: Book, args) -> int:
         print(book.why_missing(target) or f"{target} not found", file=sys.stderr)
         return 1
     print()
-    print(book.fmt_section(sec, note))
+    book.emit_section(sec, note)
     return 0
 
 
@@ -703,25 +815,28 @@ def cmd_options(book: Book, args) -> int:
         if parts:
             # No parsed table, but the section still withholds a tail paragraph -
             # sending the reader at the whole section would give it away.
+            # The outcome line is the referee's, and e060's names every branch, so
+            # it goes to stderr with the rest of the adjudication notes.
             print(f"{sid} {sec['title']}: no die-roll table. Read the setup and "
-                  f"resolve it by hand.")
-            print(f"  -> bp show {sid}#{parts[0]['part']}")
+                  f"resolve it by hand.", file=sys.stderr)
+            print(f"  -> bp show {sid}#{parts[0]['part']}", file=sys.stderr)
             if parts[0].get("then"):
-                print(f"  then: {parts[0]['then']}")
+                print(f"  then: {parts[0]['then']}", file=sys.stderr)
             return 0
-        print(f"{sid} {sec['title']}: no die-roll table; just read the section.")
+        print(f"{sid} {sec['title']}: no die-roll table; just read the section.",
+              file=sys.stderr)
         return 0
 
-    print(f"{sid} {sec['title']}")
+    print(f"{sid} {sec['title']}", file=sys.stderr)
     # Substitute into the intro rather than the whole body: the anchors sit in the
     # prose above the table, and rewriting the body first could move a part anchor.
     intro, counts = creatures.apply_text(sid, intro_text(sec, table, parts),
-                                         raw=args.raw, partial=True)
+                                         no_counts=args.no_counts, partial=True)
     if not args.quiet:
+        # The title is already on stderr, so the prose starts at the situation.
+        print(prose_text(intro))
         print()
-        print(intro)
-    creatures.show_notes(counts)
-    print()
+    creatures.show_notes(counts, sys.stderr)
 
     if table["kind"] == "options":
         for col in table["columns"]:
@@ -836,8 +951,7 @@ def cmd_resolve(book: Book, args) -> int:
         return 0
     nxt, counts = creatures.apply(nxt)
     print()
-    print(fmt(nxt, tnote))
-    creatures.show_notes(counts)
+    emit(nxt, tnote, counts=counts)
     return 0
 
 
@@ -880,22 +994,12 @@ def cmd_list(book: Book, args) -> int:
     return 0
 
 
-def cmd_speak(book: Book, args) -> int:
-    try:
-        sec, note = fetch(book, args.id)
-    except LookupError as e:
-        print(e, file=sys.stderr)
-        return 1
-    if note:
-        print(f"[errata] {note}", file=sys.stderr)
-    # The band already has a size by the time it is read out, and the notes go to
-    # stderr so the count is never spoken as an aside to the player.
-    sec, counts = creatures.apply(sec, raw=args.raw)
-    creatures.show_notes(counts, sys.stderr)
-    if args.text_only:
-        print(to_speech(sec))
-        return 0
-    return speak(sec, args.voice, args.save, args.backend)
+def cmd_say(book: Book, args) -> int:
+    """Read text aloud. There is no `bp speak <id>` any more: `bp show` already
+    prints what a DM would say, so the Stop hook can speak the narration itself
+    and the player hears exactly what is on screen."""
+    text = " ".join(args.words) if args.words and not args.stdin else sys.stdin.read()
+    return speak(text, args.voice, args.backend)
 
 
 def main() -> int:
@@ -903,8 +1007,8 @@ def main() -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    def raw_flag(s):
-        s.add_argument("--raw", action="store_true",
+    def counts_flag(s):
+        s.add_argument("--no-counts", action="store_true",
                        help="read band sizes as the booklet prints them, without "
                             "substituting the count rolled for this encounter")
 
@@ -912,7 +1016,12 @@ def main() -> int:
     s.add_argument("ids", nargs="+")
     s.add_argument("--parts", action="store_true",
                    help="list the passages a section is read in, without the text")
-    raw_flag(s)
+    # --raw means the same thing everywhere: exactly what the source printed.
+    # Compose the two for the true booklet text: --raw --no-counts.
+    s.add_argument("--raw", action="store_true",
+                   help="print the source layout - tables, ids, refs - instead of "
+                        "the prose a DM would read out")
+    counts_flag(s)
     s.set_defaults(fn=cmd_show)
 
     s = sub.add_parser("search", help="full-text search")
@@ -976,7 +1085,7 @@ def main() -> int:
     s = sub.add_parser("options", help="what to choose and roll, without spoilers")
     s.add_argument("id")
     s.add_argument("-q", "--quiet", action="store_true", help="omit the intro prose")
-    raw_flag(s)
+    counts_flag(s)
     s.set_defaults(fn=cmd_options)
 
     s = sub.add_parser("resolve", help="apply a choice and die roll, then follow on")
@@ -999,15 +1108,15 @@ def main() -> int:
     s.add_argument("prefix", nargs="?")
     s.set_defaults(fn=cmd_list)
 
-    s = sub.add_parser("speak", help="read a section aloud")
-    s.add_argument("id", help="a section id, or one passage: e001#premise")
+    s = sub.add_parser("say", help="read text aloud (stdin, or words)")
+    s.add_argument("words", nargs="*", help="text to say; omit to read stdin")
+    s.add_argument("--stdin", action="store_true", help="read the text from stdin")
     s.add_argument("--voice", help="voice id/name for the chosen backend")
-    s.add_argument("--backend", choices=["auto", "kokoro", "elevenlabs", "say"],
+    s.add_argument("--backend", choices=["auto", "kokoro", "elevenlabs", "say", "off"],
                    help="TTS backend (default: $BP_TTS, else auto)")
-    s.add_argument("--save", action="store_true", help="keep the audio in audio/")
-    s.add_argument("--text-only", action="store_true", help="print speech text, don't play")
-    raw_flag(s)
-    s.set_defaults(fn=cmd_speak)
+    # Saying something needs no game data, and the Stop hook must still work in a
+    # checkout that has no booklets extracted yet.
+    s.set_defaults(fn=cmd_say, needs_book=False)
 
     # bp encounter - the band sizes rolled for what is happening right now, which
     # are recorded so that what is read aloud and what reaches the sheet agree.
@@ -1024,7 +1133,8 @@ def main() -> int:
 
     args = p.parse_args()
     load_dotenv()
-    return args.fn(Book(), args)
+    book = Book() if getattr(args, "needs_book", True) else None
+    return args.fn(book, args)
 
 
 if __name__ == "__main__":

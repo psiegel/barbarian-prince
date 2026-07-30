@@ -8,7 +8,7 @@ which is where eight goblins quietly becomes three goblins two messages later.
 
 So the count is rolled once, written into the save file against the day and hex it
 was rolled for, and substituted into the prose wherever the section is read -
-`show`, `speak`, `options`, and the follow-on section `resolve` prints. Every later
+`show`, `options`, and the follow-on section `resolve` prints. Every later
 read of the same section on the same day in the same hex gets the same number back
 out, and the `bp foe add` line is printed with that number already in it, so the
 sheet cannot end up disagreeing with what was said aloud. A different day or a
@@ -196,7 +196,7 @@ def report(sid: str, spec: dict, rec: dict, fresh: bool) -> list[str]:
     return out
 
 
-def apply_text(sid: str, text: str, raw: bool = False,
+def apply_text(sid: str, text: str, no_counts: bool = False,
                partial: bool = False) -> tuple[str, list[str]]:
     """Substitute recorded band sizes into a passage. Returns (text, notes).
 
@@ -206,7 +206,7 @@ def apply_text(sid: str, text: str, raw: bool = False,
     loud rather than silently reading the un-rewritten sentence.
     """
     entries = specs(base_id(sid))
-    if raw or not entries:
+    if no_counts or not entries:
         return text, []
     try:
         g = state.load_game(argparse.Namespace(game=None), required=False)
@@ -233,9 +233,9 @@ def apply_text(sid: str, text: str, raw: bool = False,
     return text, notes
 
 
-def apply(sec: dict, raw: bool = False) -> tuple[dict, list[str]]:
+def apply(sec: dict, no_counts: bool = False) -> tuple[dict, list[str]]:
     """The same, on a section dict. The original is left alone."""
-    body, notes = apply_text(sec["id"], sec["body"], raw=raw,
+    body, notes = apply_text(sec["id"], sec["body"], no_counts=no_counts,
                              partial="#" in sec["id"])
     if body == sec["body"]:
         return sec, notes
@@ -264,7 +264,7 @@ def cmd_encounter(book, args) -> int:
             for group, rec in sorted(groups.items())]
     if not rows:
         print("no creature counts recorded. They are rolled and filed the first "
-              "time a section that needs one is read:\n  bp speak e052")
+              "time a section that needs one is read:\n  bp show e052")
         return 0
     for sid, group, rec in rows:
         stale = " (stale - a new day or hex, so it will be rolled again)" \
@@ -306,7 +306,7 @@ def cmd_encounter_set(book, args) -> int:
           f"(day {rec['day']}, hex {rec.get('hex')})")
     for line in foe_lines(spec, rec["n"]):
         print(f"  -> {line}")
-    print(f"Re-read the section and it will say {rec['n']}: bp speak {sid}")
+    print(f"Re-read the section and it will say {rec['n']}: bp show {sid}")
     return 0
 
 

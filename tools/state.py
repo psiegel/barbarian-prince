@@ -17,6 +17,7 @@ Saves live in saves/ as plain JSON, one file per game, and are not tracked.
 """
 
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -120,7 +121,7 @@ def note(g: dict, what: str) -> None:
 #
 # Several sections leave the size of a band to a die (creatures.py rewrites the
 # sentence with the number already in it). The number has to survive between
-# commands, or `bp speak` says eight goblins and `bp foe add` records three - so
+# commands, or `bp show` says eight goblins and `bp foe add` records three - so
 # it is filed here, against the day and hex it was rolled for. A different day or
 # a different hex is a different band, and is rolled again.
 
@@ -1314,6 +1315,25 @@ def add_char_flags(s, kinds: bool = False) -> None:
     s.add_argument("--note", help="free text kept on the sheet")
 
 
+def sheet_command(fn):
+    """Make a state command print to stderr instead of stdout.
+
+    The sheet is the referee's, never the player's. Every command in this file
+    prints the same kind of thing - aligned tables, bare numbers, rule cites,
+    and `bp foe add` lines to run next - and none of it is anything a DM says.
+    Read aloud, `bp game` becomes "name kind combat skill end wounds starving
+    pay condition, dash dash dash", which is how it sounded before this existed.
+
+    So the numbers reach the narrator and the narrator says them: "you have four
+    gold and nothing to eat". Wrapping at registration rather than in each of
+    the two dozen commands keeps the rule in one place, where it can't drift.
+    """
+    def wrapped(book, args):
+        with contextlib.redirect_stdout(sys.stderr):
+            return fn(book, args)
+    return wrapped
+
+
 def register(sub) -> None:
     """Add the state commands to bp's subparser. Called from bp.main()."""
 
@@ -1324,7 +1344,7 @@ def register(sub) -> None:
     s = sub.add_parser("game", help="the character sheet: day, food, gold, party")
     game_flag(s)
     s.add_argument("-b", "--brief", action="store_true", help="one-line summary")
-    s.set_defaults(fn=cmd_game)
+    s.set_defaults(fn=sheet_command(cmd_game))
     gsub = s.add_subparsers(dest="gamecmd")
 
     n = gsub.add_parser("new", help="start tracking a game (after bp start)")
@@ -1339,78 +1359,78 @@ def register(sub) -> None:
     n.add_argument("--cs", type=int, default=8, help="combat skill (r202: 8)")
     n.add_argument("--end", type=int, default=9, help="endurance (r202: 9)")
     n.add_argument("--force", action="store_true", help="overwrite an existing save")
-    n.set_defaults(fn=cmd_game_new)
+    n.set_defaults(fn=sheet_command(cmd_game_new))
 
     l = gsub.add_parser("list", help="saves on disk")
-    l.set_defaults(fn=cmd_game_list)
+    l.set_defaults(fn=sheet_command(cmd_game_list))
 
     u = gsub.add_parser("use", help="switch which game is current")
     u.add_argument("name")
-    u.set_defaults(fn=cmd_game_use)
+    u.set_defaults(fn=sheet_command(cmd_game_use))
 
     e = gsub.add_parser("set", help="record where the party is, or a note")
     game_flag(e)
     e.add_argument("--hex", help="the hex they are standing in")
     e.add_argument("--note", help="add a note to the sheet")
     e.add_argument("--clear-notes", action="store_true")
-    e.set_defaults(fn=cmd_game_set)
+    e.set_defaults(fn=sheet_command(cmd_game_set))
 
     g = gsub.add_parser("log", help="what has been recorded, most recent last")
     game_flag(g)
     g.add_argument("-n", "--limit", type=int, default=25)
-    g.set_defaults(fn=cmd_game_log)
+    g.set_defaults(fn=sheet_command(cmd_game_log))
 
     # bp time / food / gold
     s = sub.add_parser("time", help="the day counter: 70 days, ten weeks (e001)")
     game_flag(s)
     s.add_argument("amount", nargs="?", help="+1 to advance a day, or 12 to set it")
-    s.set_defaults(fn=cmd_time)
+    s.set_defaults(fn=sheet_command(cmd_time))
 
     s = sub.add_parser("food", help="food units in store (r215a)")
     game_flag(s)
     s.add_argument("amount", nargs="?", help="+5 gained, -3 spent, or 12 to set")
-    s.set_defaults(fn=cmd_food)
+    s.set_defaults(fn=sheet_command(cmd_food))
 
     s = sub.add_parser("gold", help="gold pieces (r225)")
     game_flag(s)
     s.add_argument("amount", nargs="?", help="+40 gained, -3 spent, or 12 to set")
-    s.set_defaults(fn=cmd_gold)
+    s.set_defaults(fn=sheet_command(cmd_gold))
 
     # bp party ...
     s = sub.add_parser("party", help="the characters with you, and their state")
     game_flag(s)
-    s.set_defaults(fn=cmd_party)
+    s.set_defaults(fn=sheet_command(cmd_party))
     psub = s.add_subparsers(dest="partycmd")
 
     a = psub.add_parser("add", help="a follower or mount joins (r201)")
     game_flag(a)
     a.add_argument("name")
     add_char_flags(a, kinds=True)
-    a.set_defaults(fn=cmd_party_add)
+    a.set_defaults(fn=sheet_command(cmd_party_add))
 
     st = psub.add_parser("set", help="correct any field on a character")
     game_flag(st)
     st.add_argument("name")
     add_char_flags(st)
-    st.set_defaults(fn=cmd_party_set)
+    st.set_defaults(fn=sheet_command(cmd_party_set))
 
     w = psub.add_parser("wound", help="apply or remove wounds (r221)")
     game_flag(w)
     w.add_argument("name")
     w.add_argument("amount", help="+2 for two wounds, -1 to take one back")
-    w.set_defaults(fn=cmd_party_wound)
+    w.set_defaults(fn=sheet_command(cmd_party_wound))
 
     h = psub.add_parser("heal", help="a day's rest: one wound each (r222)")
     game_flag(h)
     h.add_argument("names", nargs="*", help="default: everyone")
     h.add_argument("-n", "--amount", type=int, default=1)
-    h.set_defaults(fn=cmd_party_heal)
+    h.set_defaults(fn=sheet_command(cmd_party_heal))
 
     d = psub.add_parser("drop", help="a follower dies, deserts or is dismissed")
     game_flag(d)
     d.add_argument("name")
     d.add_argument("--why", help="dead, deserted, dismissed, sold...")
-    d.set_defaults(fn=cmd_party_drop)
+    d.set_defaults(fn=sheet_command(cmd_party_drop))
 
     # bp eat / starve / lodge
     s = sub.add_parser("eat", help="the evening meal, and who goes without (r215)")
@@ -1428,18 +1448,18 @@ def register(sub) -> None:
                    help="can the mounts forage here? (r215f)")
     s.add_argument("--no-water", dest="water", action="store_false", default=True,
                    help="desert with no oasis: the requirement doubles (r215a)")
-    s.set_defaults(fn=cmd_eat)
+    s.set_defaults(fn=sheet_command(cmd_eat))
 
     s = sub.add_parser("pay", help="the day's wages to hired followers (r333)")
     game_flag(s)
     s.add_argument("--skip", nargs="*", default=[], metavar="NAME",
                    help="who goes unpaid tonight - they leave (r333)")
-    s.set_defaults(fn=cmd_pay)
+    s.set_defaults(fn=sheet_command(cmd_pay))
 
     s = sub.add_parser("starve", help="record a day gone without food (r216)")
     game_flag(s)
     s.add_argument("names", nargs="*", help="default: the whole party")
-    s.set_defaults(fn=cmd_starve)
+    s.set_defaults(fn=sheet_command(cmd_starve))
 
     s = sub.add_parser("lodge", help="rooms and stables for the night (r217)")
     game_flag(s)
@@ -1448,12 +1468,12 @@ def register(sub) -> None:
                         "wizards, witches (r217)")
     s.add_argument("--rough", action="store_true",
                    help="buy no rooms, and take the desertion rolls instead")
-    s.set_defaults(fn=cmd_lodge)
+    s.set_defaults(fn=sheet_command(cmd_lodge))
 
     # bp foe ...
     s = sub.add_parser("foe", help="enemies in the current fight (r220), cleared after")
     game_flag(s)
-    s.set_defaults(fn=cmd_foe)
+    s.set_defaults(fn=sheet_command(cmd_foe))
     fsub = s.add_subparsers(dest="foecmd")
 
     a = fsub.add_parser("add", help="an enemy character enters the fight")
@@ -1465,16 +1485,16 @@ def register(sub) -> None:
                    help="wealth code, for treasure if killed (r225, r226)")
     a.add_argument("--count", type=int, default=1,
                    help="that many identical enemies, numbered")
-    a.set_defaults(fn=cmd_foe_add)
+    a.set_defaults(fn=sheet_command(cmd_foe_add))
 
     w = fsub.add_parser("wound", help="wound an enemy")
     game_flag(w)
     w.add_argument("name")
     w.add_argument("amount", help="+1, +2, ...")
-    w.set_defaults(fn=cmd_foe_wound)
+    w.set_defaults(fn=sheet_command(cmd_foe_wound))
 
     c = fsub.add_parser("clear", help="the fight is over; forget the enemies")
     game_flag(c)
     c.add_argument("--no-loot", action="store_true",
                    help="skip the treasure reminder (they routed, or fled)")
-    c.set_defaults(fn=cmd_foe_clear)
+    c.set_defaults(fn=sheet_command(cmd_foe_clear))
