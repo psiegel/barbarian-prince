@@ -15,8 +15,8 @@ The stdout/stderr split is `bp`'s own contract (see CLAUDE.md), so the routing
 table above is the whole design. Nothing depends on the model remembering to
 relay anything.
 
-    python3 procedures.py                 # start playing
-    python3 procedures.py --referee       # also show stderr and the tool calls
+    ./play                 # start playing, then /start for a new game
+    ./play --referee       # also show stderr and the tool calls
 """
 
 import argparse
@@ -30,6 +30,8 @@ import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+import markup
 
 ROOT = Path(__file__).resolve().parent.parent
 # Invoked as a module with this same interpreter rather than through a
@@ -72,9 +74,19 @@ def system_prompt() -> str:
 
 # --- speech ---------------------------------------------------------------
 
-# Sentence-ish boundary. Speaking a sentence at a time is what lets the voice
-# start while the model is still generating, instead of after the full turn.
-SENTENCE_END = re.compile(r"(?<=[.!?:])\s+")
+# A place it is safe to cut the stream: end of a line, or end of a sentence.
+# Flushing here rather than per-chunk is what lets the voice start while the
+# model is still generating, and it keeps `**bold**` intact - rendering a chunk
+# boundary that fell between the two asterisks would print the markers raw.
+SEGMENT_END = re.compile(r"\n|(?<=[.!?:])\s+")
+
+
+def split_ready(buf: str) -> tuple[str, str]:
+    """Split off as much as ends on a boundary, keeping the unfinished tail."""
+    last = None
+    for last in SEGMENT_END.finditer(buf):
+        pass
+    return (buf[:last.end()], buf[last.end():]) if last else ("", buf)
 
 # A model that is told not to repeat the prose can still invent it instead, and
 # its own words reach the player unchecked. In testing a local model opened the
@@ -184,7 +196,7 @@ def run_bp(args: list[str], speaker: Speaker, referee: bool) -> str:
     if referee:
         print(f"{DIM}$ ./bp {' '.join(args)}{RESET}")
     if p.stdout.strip():
-        print(f"\n{PROSE}{p.stdout.rstrip()}{RESET}\n")
+        print(f"\n{PROSE}{markup.wrap(p.stdout.rstrip())}{RESET}\n")
         speaker.say(p.stdout)
     if p.stderr.strip() and referee:
         print(f"{DIM}{p.stderr.rstrip()}{RESET}")
@@ -217,6 +229,7 @@ def stream_chat(messages: list[dict], speaker: Speaker) -> dict:
                                  headers={"Content-Type": "application/json"})
 
     content, tool_calls, buf, spoke = [], [], "", False
+    screen = markup.Wrap()
     with urllib.request.urlopen(req, timeout=900) as r:
         for line in r:
             line = line.strip()
@@ -234,22 +247,21 @@ def stream_chat(messages: list[dict], speaker: Speaker) -> dict:
                 if not spoke:
                     print()  # separate the narration from whatever came before
                     spoke = True
-                print(piece, end="", flush=True)
                 content.append(piece)
                 buf += piece
-                # Speak on sentence boundaries so the voice keeps pace with the
-                # text rather than waiting for the turn to finish.
-                parts = SENTENCE_END.split(buf)
-                if len(parts) > 1:
-                    for sentence in parts[:-1]:
-                        speaker.say(sentence)
-                    buf = parts[-1]
+                # The screen and the speaker want opposite things from the same
+                # markdown, so each segment is rendered once and stripped once.
+                ready, buf = split_ready(buf)
+                if ready:
+                    print(screen.feed(markup.render(ready)), end="", flush=True)
+                    speaker.say(markup.speakable(ready))
 
             if chunk.get("done"):
                 break
 
     if buf.strip():
-        speaker.say(buf)
+        print(screen.feed(markup.render(buf)), end="", flush=True)
+        speaker.say(markup.speakable(buf))
     if spoke:
         print()
     return {"role": "assistant", "content": "".join(content),
