@@ -8,6 +8,7 @@ program runs it, and this program decides what the player sees and hears.
 
     bp stdout   -> screen, speaker, and back to the model
     bp stderr   -> back to the model, and the screen only in referee mode
+    a fight log -> screen and the model, but never spoken (see UNSPOKEN)
     model text  -> screen and speaker
     model think -> discarded
 
@@ -235,6 +236,15 @@ TOOL = {
 }
 
 
+# Shown, but not spoken. The split is normally two-way - stdout is the player's,
+# stderr is the referee's - and a combat log is the one thing that falls between:
+# twenty-eight lines of "2d6 9 [5+4], skill +3 = 12" is exactly what you want on
+# the page to check the arithmetic against, and exactly what nobody wants read to
+# them a strike at a time. The model still receives it and says what happened;
+# that summary is the spoken version.
+UNSPOKEN = {"fight"}
+
+
 def run_bp(args: list[str], speaker: Speaker, referee: bool) -> str:
     """Run one bp command and route its output. Returns the model's view."""
     # No shell: args go straight to execve, so nothing the model emits can be
@@ -250,7 +260,8 @@ def run_bp(args: list[str], speaker: Speaker, referee: bool) -> str:
         print(f"{DIM}$ ./bp {' '.join(args)}{RESET}")
     if p.stdout.strip():
         print(f"\n{PROSE}{markup.wrap(p.stdout.rstrip())}{RESET}\n")
-        speaker.say(p.stdout)
+        if args[:1] and args[0] not in UNSPOKEN:
+            speaker.say(p.stdout)
     if p.stderr.strip() and referee:
         print(f"{DIM}{p.stderr.rstrip()}{RESET}")
 
