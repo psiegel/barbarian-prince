@@ -51,7 +51,7 @@ from pathlib import Path
 
 import combat
 import creatures
-import play
+import procedures
 import state
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -90,7 +90,7 @@ def load(name: str, required: bool = True) -> dict | None:
             f"{path} is missing.\n\n"
             "The game data is generated from the booklets rather than shipped "
             "with this repo.\nSee the README for where to download them, then "
-            "run:\n  python3 tools/extract.py"
+            "run:\n  python3 src/extract.py"
         )
     return json.loads(path.read_text())
 
@@ -178,7 +178,7 @@ class Book:
         return "\n".join(lines)
 
     def emit_section(self, sec: dict, note: str | None = None) -> None:
-        """So play.py can print a section without importing this module back.
+        """So procedures.py can print a section without importing this module back.
 
         Band sizes are substituted here too: a section is a section however the
         reader arrived at it, and an event reached through the treasure table must
@@ -231,7 +231,7 @@ def slice_part(sec: dict, parts: list[dict], name: str) -> dict:
 
     start = 0
     if p.get("from"):
-        m = play.anchor(body, p["from"])
+        m = procedures.anchor(body, p["from"])
         if not m:
             raise LookupError(
                 f"{sid}#{name}: the opening anchor {p['from']!r} is not in the "
@@ -240,7 +240,7 @@ def slice_part(sec: dict, parts: list[dict], name: str) -> dict:
         start = m.start()
     end = len(body)
     if p.get("until"):
-        m = play.anchor(body, p["until"])
+        m = procedures.anchor(body, p["until"])
         if not m:
             raise LookupError(
                 f"{sid}#{name}: the closing anchor {p['until']!r} is not in the "
@@ -667,7 +667,7 @@ def travel_row_hint(book: Book, q: str) -> str | None:
         if q in key or key in q:
             return (f"r207   Travel Table row {key!r} - lost/event thresholds and the "
                     f"die 1-6 references.\n       -> bp travel \"{key}\"")
-    alias = play.TERRAIN_ALIASES.get(q)
+    alias = procedures.TERRAIN_ALIASES.get(q)
     if alias:
         return (f"r207   Travel Table: {q!r} is the {alias!r} row.\n"
                 f"       -> bp travel \"{alias}\"")
@@ -708,18 +708,18 @@ def cmd_travel(book: Book, args) -> int:
         print(book.travel_table_text())
         return 0
     try:
-        key = play.terrain_key(book, args.terrain)
-    except play.Refuse as e:
+        key = procedures.terrain_key(book, args.terrain)
+    except procedures.Refuse as e:
         print(e, file=sys.stderr)
         return 1
     terrain = book.travel["terrain"][key]
 
     # The two 2d6 gates come first: they decide whether the 1d6 below happens.
     if args.lost is not None:
-        print(play.check_lost(book, key, args.lost, args.guide))
+        print(procedures.check_lost(book, key, args.lost, args.guide))
         return 0
     if args.event is not None:
-        print(play.check_event(book, key, args.event))
+        print(procedures.check_event(book, key, args.event))
         return 0
 
     print(f"{terrain['name']}: lost on {terrain['lost_on']} (2d6), "
@@ -1050,18 +1050,18 @@ def main() -> int:
                    help="the caravan die, once they roll it")
     s.add_argument("--step", type=int, metavar="N",
                    help="print only step N - one stop per message")
-    s.set_defaults(fn=play.cmd_start)
+    s.set_defaults(fn=procedures.cmd_start)
 
     s = sub.add_parser("day", help="today's actions and the end-of-day checks (r203)")
     s.add_argument("hex_type", nargs="*",
                    help="a hex id like 0101, or town/castle/temple/ruins")
-    s.set_defaults(fn=play.cmd_day)
+    s.set_defaults(fn=procedures.cmd_day)
 
     s = sub.add_parser("hex", help="what is in a hex, and what is next to it")
     s.add_argument("id", help="four digits, XXYY, like 1017")
     s.add_argument("--drift", type=int, choices=range(1, 7), metavar="1-6",
                    help="resolve an r205c airborne drift die to a destination hex")
-    s.set_defaults(fn=play.cmd_hex)
+    s.set_defaults(fn=procedures.cmd_hex)
 
     s = sub.add_parser("move", help="the ordered checks for one hex of travel (r204/r205)")
     s.add_argument("frm", metavar="from", help="hex id or terrain you are leaving")
@@ -1075,12 +1075,12 @@ def main() -> int:
                    help="override the map on whether you leave by road (r204c)")
     s.add_argument("--airborne", action="store_true", help="flying, not short-hopping (r204d)")
     s.add_argument("--guide", action="store_true", help="party includes a guide (r205a)")
-    s.set_defaults(fn=play.cmd_move)
+    s.set_defaults(fn=procedures.cmd_move)
 
     s = sub.add_parser("treasure", help="the r226 grid, by wealth code")
     s.add_argument("code", help="wealth code, or A/B/C for the possession lines")
     s.add_argument("roll", nargs="?", type=int, choices=range(1, 7))
-    s.set_defaults(fn=play.cmd_treasure)
+    s.set_defaults(fn=procedures.cmd_treasure)
 
     s = sub.add_parser("options", help="what to choose and roll, without spoilers")
     s.add_argument("id")

@@ -124,7 +124,7 @@ def hexside(book, a: str, b: str) -> dict[str, bool]:
 
     A river runs along an edge and a road crosses one, so both belong to the
     boundary rather than to either hex, and the map data records each of them
-    twice - once from either side. tools/extract_map.py refuses to let the two
+    twice - once from either side. src/extract_map.py refuses to let the two
     copies disagree, so in practice either one answers the question. Read both
     anyway: if they ever do disagree, a river check that silently does not
     happen is a rule quietly not applied for the rest of the game, and the only
@@ -439,7 +439,7 @@ def cmd_hex(book, args) -> int:
         print(e, file=sys.stderr)
         return 1
     if not book.map:
-        print("no map data - run tools/extract_map.py", file=sys.stderr)
+        print("no map data - run src/extract_map.py", file=sys.stderr)
         return 1
     if hex_entry(book, args.id) is None:
         grid = sorted(book.map["hexes"])

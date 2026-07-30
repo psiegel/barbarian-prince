@@ -60,7 +60,7 @@ Dienstal Branch feeding it from the marsh, and the Largos runs from the marsh
 northeast off the board. Geography, not coordinates.
 
 **A few hexes are genuinely uncertain** — the map data is a third-party
-transcription, and `tools/extract_map.py` prints what it disagrees with the
+transcription, and `src/extract_map.py` prints what it disagrees with the
 booklet about. `bp` refuses on those rather than guessing: hexes straddling two
 terrains, and `1720` whose terrain is missing. If it refuses, ask the player.
 
@@ -85,7 +85,7 @@ The PDFs are slow and lossy to read. Everything is extracted into `data/`:
 ./bp refs r220           # what links out of a section, and what links into it
 ./bp roll 2d6            # dice, only when the player asks you to roll
 ./bp list e              # every event id and title
-./bp say                 # read stdin aloud; the Stop hook does this for you
+./bp say                 # read stdin aloud; ./play does this for you
 ./bp encounter           # how many of them there are, once it has been read out
 ```
 
@@ -122,7 +122,7 @@ of them there are, which `bp` rolls itself; see "How many of them there are" bel
 in particular is a trap, because it looks memorable and isn't. Sections `r265`
 and `e265` are different things and only one of them exists.
 
-Only re-read the PDFs if `bp` is missing something; then run `python3 tools/extract.py`.
+Only re-read the PDFs if `bp` is missing something; then run `python3 src/extract.py`.
 
 ## Section numbering
 
@@ -140,7 +140,7 @@ adjudicate by analogy.
 
 `data/tables.json` holds the parsed die-roll tables, and `data/errata.json` also
 records `source_fixes` - literal repairs to two passages the 1981 typesetting
-mangled. Both are rebuilt or respected by `tools/extract.py`.
+mangled. Both are rebuilt or respected by `src/extract.py`.
 `data/procedures.json` is the other hand-maintained file: it holds the *order* of
 the r202–r205 and r215–r217 procedures that `start`, `day` and `move` walk through.
 
@@ -462,27 +462,30 @@ the reliable way to catch them, but watch for them yourself too:
 colour. Never change what a section actually says — the rules are the rules, and a
 wrong ruling costs the player their game.
 
-## One text, and how it gets spoken
+## One text, and two channels
 
 There is no `bp speak`. `bp show` prints the prose a DM would say — unwrapped,
-"rule 330" rather than "r330", and with the outcome tables stripped out — and a
-`Stop` hook (`tools/speak_hook.py`) reads your message aloud when the turn ends.
-So the player hears what is on screen, including your questions and rulings, and
-the two can never drift apart.
+"rule 330" rather than "r330", and with the outcome tables stripped out.
 
 **stdout is what the player hears. stderr is what you need.** Section ids, errata,
-`-> r330`, `-> then:` and the band-size notes all go to stderr, so they cannot be
+`-> r330`, `-> then:`, the band-size notes, every procedure checklist (`start`,
+`day`, `move`) and the whole character sheet go to stderr, so none of it can be
 read out by accident. Read stderr — it is where the id and the follow-ons are.
 
-**Relay stdout verbatim.** This is the rule the whole arrangement rests on. The
-player hears your words, not `bp`'s, so paste the prose `show` printed rather than
-summarizing it, and never recite a section from your own knowledge of the book. If
-data is missing, say so and suggest `python3 tools/extract.py`. Add your colour
-around the quoted prose, not inside it.
+The split is not advice, it is what the game client routes on: `./play` sends
+stdout to the screen and the speaker and stderr only to you. Which means the
+scaffolding is already invisible to the player — don't recite the checklist back,
+turn it into a question.
 
-**Write for the ear.** The hook strips code spans, bullets and headings before
-speaking, so a command mid-sentence becomes a hole ("Run for the choices"). Keep
-commands out of narration and put questions in plain sentences.
+**Never write the book's words.** Not one sentence of section text comes from you.
+The book is not in your memory and whatever you seem to recall of it is wrong —
+wrong kingdom, wrong names, wrong numbers. Prose reaches the player by running a
+command and by no other route. If data is missing, say so and suggest
+`python3 src/extract.py`; never paper over it with something plausible.
+
+**Write for the ear.** A command mid-sentence becomes a hole when spoken ("Run
+for the choices"). Keep commands out of narration and put questions in plain
+sentences.
 
 **`--raw` means "exactly what the source printed"** — the booklet's layout, the
 outcome tables, the ids. That is the referee's view: use it to adjudicate the
@@ -490,18 +493,21 @@ sections with no machine-readable table, and never read it out. `--no-counts` is
 separate and orthogonal: it leaves the band-size sentence as the booklet wrote it.
 `--raw --no-counts` is the true booklet text.
 
+Playing it: `./play` is the game client — a local model through Ollama, with
+`bp`'s stdout spoken. `./play --referee` shows the tool calls and stderr too.
+`/start` there walks the whole setup in code rather than asking a model to.
+
 Voice is a preference, not a feature. `BP_TTS` in `.env` picks the backend —
 `kokoro` (a local Kokoro-82M server on `KOKORO_URL`), `elevenlabs` (when
 `ELEVENLABS_API_KEY` is set), `say` (the macOS built-in), or `off`. `auto` uses
 whatever is already running. Nothing hard-fails: an unreachable backend falls back
-to `say`, and the hook exits silently rather than breaking a turn. If the player
+to `say`, and speech failing never breaks a turn. If the player
 wants local voice and the server isn't running, the fix is `mlx_audio.server
---port 8000` — setup is in `docs/local-tts.md`. `./bp say` speaks stdin, which is
-all the hook does.
+--port 8000` (or `./run_tts.sh`) — setup is in `docs/local-tts.md`.
 
 ## Regenerating
 
-`python3 tools/extract.py` rebuilds `data/sections.json`, `data/tables.json` and
+`python3 src/extract.py` rebuilds `data/sections.json`, `data/tables.json` and
 `data/travel.json` from the PDFs, deterministically. It does **not** touch
 `data/errata.json`, which is hand-maintained.
 

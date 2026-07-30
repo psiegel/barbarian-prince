@@ -192,7 +192,7 @@ pre-release versions; add `--prerelease=allow` to the install command.
 against the running server are fast.
 
 **Wrong pronunciation of rule numbers** — that's this repo, not Kokoro. `bp` rewrites
-`r203` to "rule 203" before synthesis; see `to_speech()` in `tools/bp.py`, and check
+`r203` to "rule 203" before synthesis; see `to_prose()` in `src/bp.py`, and check
 the exact text with `./bp show <id>`.
 
 ## VibeVoice, if you still want it
@@ -207,7 +207,7 @@ It has no MLX port, so on Apple Silicon it runs through PyTorch with the `mps`
 backend, which is slower and heavier than Kokoro — the 1.5B model wants several GB
 of RAM and is roughly real-time rather than many times faster. It does not serve an
 OpenAI-compatible endpoint, so `bp` would need a new backend function; the shape to
-copy is `speak_kokoro()` in `tools/bp.py`, which only has to return
+copy is `speak_kokoro()` in `src/bp.py`, which only has to return
 `(audio_bytes, extension)`.
 
 Its real advantage is multi-speaker dialogue — distinct voices for the Prince and

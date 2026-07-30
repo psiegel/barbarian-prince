@@ -15,8 +15,8 @@ The stdout/stderr split is `bp`'s own contract (see CLAUDE.md), so the routing
 table above is the whole design. Nothing depends on the model remembering to
 relay anything.
 
-    python3 play.py                 # start playing
-    python3 play.py --referee       # also show stderr and the tool calls
+    python3 procedures.py                 # start playing
+    python3 procedures.py --referee       # also show stderr and the tool calls
 """
 
 import argparse
@@ -31,7 +31,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 BP = ROOT / "bp"
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
@@ -490,7 +490,8 @@ def take_turn(messages: list[dict], speaker: Speaker, referee: bool):
 
 def main() -> int:
     global MODEL
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(prog="play",
+                                description=__doc__.split("\n")[0])
     ap.add_argument("--referee", action="store_true",
                     help="show the tool calls and bp's stderr")
     ap.add_argument("--quiet", action="store_true", help="no speech")
@@ -502,7 +503,7 @@ def main() -> int:
     args = ap.parse_args()
 
     if not (ROOT / "data" / "sections.json").exists():
-        print("data/sections.json is missing - run python3 tools/extract.py "
+        print("data/sections.json is missing - run python3 src/extract.py "
               "first (see the README).", file=sys.stderr)
         return 1
 

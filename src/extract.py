@@ -5,7 +5,7 @@ Reads the PDFs in pdfs/ via `pdftotext -layout` and writes:
   data/sections.json  - every r### / e### section, keyed by id
   data/travel.json    - the r207 travel table, r231-r280 refs, r230 raft table
 
-Re-run this any time the PDFs change:  python3 tools/extract.py
+Re-run this any time the PDFs change:  python3 src/extract.py
 """
 
 import json

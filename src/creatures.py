@@ -30,7 +30,7 @@ import re
 import sys
 from pathlib import Path
 
-import play
+import procedures
 import state
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -218,7 +218,7 @@ def apply_text(sid: str, text: str, no_counts: bool = False,
     notes: list[str] = []
     dirty = False
     for spec in entries:
-        m = play.anchor(text, spec["find"])
+        m = procedures.anchor(text, spec["find"])
         if not m:
             if not partial:
                 notes.append(DRIFT.format(sid=base_id(sid), find=spec["find"]))
@@ -334,7 +334,7 @@ def cmd_encounter_check(book, args) -> int:
             bad += 1
             continue
         for spec in entries:
-            m = play.anchor(sec["body"], spec["find"])
+            m = procedures.anchor(sec["body"], spec["find"])
             if not m:
                 print(f"{sid} {spec['group']}: the phrase {spec['find']!r} is not "
                       f"in the section text", file=sys.stderr)

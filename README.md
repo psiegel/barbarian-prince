@@ -32,7 +32,7 @@ Miniatures permits to be distributed free of charge:
 Put them in `pdfs/`, then build the data:
 
 ```sh
-python3 tools/extract.py
+python3 src/extract.py
 ```
 
 ```
@@ -56,7 +56,7 @@ are transcribed into a separate spreadsheet:
 Download it as CSV to `data/map-data.csv` and build:
 
 ```sh
-python3 tools/extract_map.py
+python3 src/extract_map.py
 ```
 
 The CLI then takes hex ids directly — `./bp hex 1017`, `./bp move 1017 1118`,
@@ -74,18 +74,41 @@ two hexes and is recorded on both, so the transcription proves its own
 consistency — one-sided marks are reported, and `--mirror` proposes the repairs
 that are purely mechanical.
 
-### Voice (optional)
+### Playing it: `./play`
 
-`bp show` prints the prose a DM would say, and a `Stop` hook
-(`tools/speak_hook.py`, wired in `.claude/settings.json`) reads the narrator's reply
-aloud through `./bp say`. So the spoken game and the printed game are the same text,
-and the questions and rulings get voiced too, not just the booklet.
+`./play` runs the game against a local model through Ollama, with the narration
+spoken. It is the client; `bp` stays the reference the client calls.
+
+```sh
+./play              # then /start for a new game
+./play --referee    # also show the tool calls and bp's stderr
+./play --quiet      # no speech
+```
+
+The whole design is one routing table, and the program — not the model — decides
+each row:
+
+| | screen | speaker | model |
+|---|---|---|---|
+| `bp` **stdout** — the prose | yes | yes | yes |
+| `bp` **stderr** — ids, cites, checklists | referee mode | no | yes |
+| the model's own words | yes | yes | — |
+| the model's *thinking* | no | no | no |
+
+Because the model never carries the booklet's text, it cannot fail to deliver it.
+`/start` goes further and walks all seven setup steps in code: there is no
+judgment in "read this passage, roll a die, write it down", so the model is not
+consulted until day 1.
+
+`BP_MODEL` picks the model (default `qwen3.6:latest`), `OLLAMA_URL` the endpoint.
+
+### Voice (optional)
 
 Four backends, picked automatically: a local Kokoro server if one is listening, else
 ElevenLabs if a key is set, else the macOS `say` command — or `off`. Set `BP_TTS` in
 `.env` to force one. It never hard-fails: an unreachable backend falls back to `say`
-and says why, and the hook exits quietly rather than breaking a turn. With no
-configuration at all you get `say`, and the rest of the CLI is unaffected.
+and says why. With no configuration at all you get `say`, and the rest of the CLI is
+unaffected. `./bp say` reads stdin aloud, which is all `./play` calls.
 
 Settings live in `.env`, which is git-ignored and loaded automatically. Start from
 the annotated template, which documents every option:
@@ -127,7 +150,7 @@ permission, plus voices-read if you want to list voices. Free accounts can only 
 ./bp roll 2d6              # dice
 ./bp list e                # all event ids and titles
 ./bp show e003 --raw       # the source layout: tables, ids, refs (referee only)
-./bp say                   # read stdin aloud (what the Stop hook calls)
+./bp say                   # read stdin aloud (what ./play calls)
 ```
 
 And the character sheet for a game in progress:
@@ -239,14 +262,18 @@ CLAUDE.md            how the AI should run the game
 LICENSE              MIT, covering this tooling only
 .env.example         annotated template for voice settings (copy to .env)
 docs/local-tts.md    running Kokoro locally instead of ElevenLabs
-bp                   CLI entry point
-tools/extract.py     PDFs -> data/   (re-run if the PDFs change)
-tools/tables.py      die-roll table parser used by extract.py
-tools/bp.py          the CLI
-tools/play.py        start / day / move / hex / treasure - procedural commands
-tools/state.py       game / time / food / gold / party / eat / lodge / foe - the sheet
-tools/creatures.py   how many of them there are: band sizes, rolled once and recorded
-tools/extract_map.py map-data.csv -> data/map.json, with the CSV audited
+bp                   launcher for the reference CLI
+play                 launcher for the game client
+run_tts.sh           launcher for the local Kokoro server
+src/bp.py            the CLI: show / options / resolve / travel / treasure / say
+src/procedures.py    start / day / move / hex - the sequences, from procedures.json
+src/state.py         game / time / food / gold / party / eat / lodge / foe - the sheet
+src/creatures.py     how many of them there are: band sizes, rolled once and recorded
+src/combat.py        fight auto - a whole combat, round by round
+src/narrator.py      the game client: Ollama tool-use loop, output routing, speech
+src/extract.py       PDFs -> data/   (re-run if the PDFs change)
+src/tables.py        die-roll table parser used by extract.py
+src/extract_map.py   map-data.csv -> data/map.json, with the CSV audited
 data/errata.json     hand-written notes on defects in the printed text (tracked)
 data/procedures.json hand-written ordering for r202-r205, r215-r217 (tracked)
 data/creatures.json  hand-written band-size rewrites, one per section (tracked)
@@ -274,7 +301,7 @@ don't exist, nor do `e167`–`e179`. Four references in the printed text are typ
 `data/errata.json` records these, plus OCR-level id corruptions (`el56` for `e156`,
 `i309`, `l-e034`, `e-e046`) which are normalised during extraction. Structural
 defects — a table row typeset inside the row above it — are repaired by rules in
-`tools/tables.py`, not by storing corrected text. `bp` refuses rather than guesses
+`src/tables.py`, not by storing corrected text. `bp` refuses rather than guesses
 when a lookup genuinely has no answer, so an unexpected message usually means the
 booklet really is silent there.
 

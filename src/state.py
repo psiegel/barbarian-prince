@@ -25,7 +25,7 @@ import sys
 import time
 from pathlib import Path
 
-import play
+import procedures
 
 ROOT = Path(__file__).resolve().parent.parent
 SAVES = ROOT / "saves"
@@ -41,7 +41,7 @@ KINDS = ("player", "follower", "mount")
 CAPACITY = {"player": 10, "follower": 10, "mount": 30}
 
 
-class Refuse(play.Refuse):
+class Refuse(procedures.Refuse):
     """A state change that must fail loudly rather than store a wrong number."""
 
 
@@ -954,8 +954,8 @@ def fodder_here(book, g, args) -> bool | None:
     if not hid:
         return None
     try:
-        key = play.terrain_key(book, hid)
-    except play.Refuse as e:
+        key = procedures.terrain_key(book, hid)
+    except procedures.Refuse as e:
         raise Refuse(f"{e}\nSo I cannot tell whether the mounts can forage - pass "
                      f"--fodder or --no-fodder.")
     return book.travel["terrain"][key]["fodder"].strip().lower().startswith("y")
