@@ -59,6 +59,34 @@ judgment in any of them. `run_setup()` in `narrator.py` walks it directly from
 `data/procedures.json`; the model is not consulted until day 1. Handing a fixed
 sequence to a model buys nothing and costs invention.
 
+Dusk is the same: `run_dusk()` walks e002, the hunt, the meal, wages, lodging and
+the date, and the model only sees the summary. `["time", "+1"]` and a few
+spellings of "dusk" (`is_dusk()`) are intercepted rather than passed to `bp`. Two
+rules the walk keeps:
+
+- **Ask the player for judgment, never for a lookup.** Hunt or not, buy or eat
+  stores — theirs. Which side of the Tragoth they are on, whether the hex can be
+  hunted — the map's, via `procedures.north_of_tragoth()` and `hunting_here()`.
+  `narrator.py` imports `procedures` for exactly these two, so there is one
+  implementation of each rule rather than two that can disagree.
+- **A step already on the sheet is not done again.** `already_today()` reads
+  `bp game log`, so a meal the model bought itself is not bought twice by the
+  walk. And a step that refuses stops the walk: the day stays open, and the
+  refusal goes back to the model instead of being swallowed.
+- **A walk speaks for itself.** The player hears bp's prose and the model's
+  narration; the walk's own lines — "roll 2d6", "Cal Arath brings back four food
+  units" — belong to neither, and were being printed silently while the player
+  was looking away from the screen. `tell()` prints and speaks them, and
+  `spoken()` takes the rule cite and the die notation out of the voice's copy
+  because "(r215b)" and "2d6" have no spoken form. So `ask_die()` and
+  `ask_hunter()` are heard, and so is what each step did.
+- **Report what the sheet says, not what bp said.** A `state.py` command is
+  silent by contract, so the walk reads food and gold either side of it
+  (`purse()`, `moved()`) and says what moved. Nothing parses bp's sentences, so
+  rewording `bp eat` cannot turn the report into a lie, and an unreadable sheet
+  reports nothing rather than a guess. The numbers then go to the model marked
+  as already said, so the narration neither repeats nor contradicts them.
+
 Encounters (`options` → `resolve`) are the next candidate.
 
 ## Regenerating data
@@ -89,6 +117,18 @@ around it by reading the PDFs or reconstructing content from memory.
 The map data is a third-party transcription. `extract_map.py` prints what it
 disagrees with the booklet about, and `bp` refuses on the genuinely uncertain
 hexes — those straddling two terrains, and `1720`, whose terrain is missing.
+
+Which side of the Tragoth a hex is on is derived, not stored: walk north up the
+column, and a river on any hex's N edge means the party is south of the Tragoth.
+The river found need not *be* the Tragoth — the others wander east and west too
+— but the Tragoth is the most northerly on the board, so every river is either
+it or south of it, and either way you are south of it. Reaching row 01 with
+nothing found is the other half: the Tragoth crosses all twenty columns, so if
+it is not above you, you are north of it. That leaves rows 01–02 as the
+Northlands, all six starting hexes among them; `1401`, where the Tragoth touches
+the top of the map, is correctly south. A re-transcribed `map-data.csv` that
+moved an N edge into row 01 or 02 would move the river, so check `bp hex 0101`
+still says north and `bp hex 0102` south.
 
 ## Testing
 

@@ -47,11 +47,24 @@ roll, that is a new stop.
 - `["travel", "<terrain>", "<die>"]`, `["treasure", "<code>", "<die>"]`
 - `["show", "<id>"]` — a section; `["search", "<words>"]` when you don't know it
 - `["encounter"]` — how many of them there are, once it has been read out
-- `["time", "+1"]` — end the day. This runs the dusk checks: the e002 roll north
-  of the Tragoth, the meal, wages, lodging, then the date. Never announce a new
-  day without it — saying "we move to day 2" changes nothing and skips them all.
 
 Ask the tool for the procedure rather than recalling one. It knows the order.
+
+## Ending the day
+
+When the day's action and its events are done, call `["time", "+1"]`. Nothing
+else ends a day — "we move to day 2" in prose changes no number and skips
+everything below.
+
+That one call runs the evening in order: the e002 roll where the party is north
+of the Tragoth, a hunt where the rules allow one, the meal, wages, lodging, the
+date. It asks the player for whatever it needs and reports back. Work none of it
+out yourself — which side of the river they are on and whether the hex can be
+hunted come off the map, so never ask — and never settle a meal or a bed in
+prose.
+
+If it says the day is not closed out, a check refused for want of food or gold.
+Put that choice to the player, do what they decide, then say to type `/dusk`.
 
 ## Combat
 

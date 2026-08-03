@@ -106,7 +106,7 @@
         "cite": "e001",
         "read": "e001#caravan",
         "die": "1d6",
-        "prompt": "Read the caravan paragraph, then ask where the caravan dropped them.",
+        "prompt": "Roll 1d6 for where the caravan set you down.",
         "resolve": "bp start <die>"
       },
       {
@@ -213,16 +213,25 @@
         "when": "north"
       },
       {
+        "cite": "r215b",
+        "what": "Hunting, if they want it: one character hunts, and food won this way is eaten instead of stores. Offer it before the meal, not after.",
+        "when": "hunting",
+        "resolve": "bp hunt <hunter> <2d6>"
+      },
+      {
         "cite": "r215",
-        "what": "Feed the whole party. Mounts need fodder in terrain where the travel table says fodder is no."
+        "what": "Feed the whole party. Mounts need fodder in terrain where the travel table says fodder is no.",
+        "resolve": "bp eat --hex <id>, or bp eat --buy in a town, castle or temple"
       },
       {
         "cite": "r216",
-        "what": "Anyone who cannot be fed starves - resolve r216."
+        "what": "Anyone who cannot be fed starves - resolve r216.",
+        "resolve": "bp eat --skip <name>, or bp starve if nobody eats"
       },
       {
         "cite": "r333",
-        "what": "Pay the day's wages to any hired follower at the meal - unpaid hirelings leave."
+        "what": "Pay the day's wages to any hired follower at the meal - unpaid hirelings leave.",
+        "resolve": "bp pay"
       },
       {
         "cite": "r217",
@@ -231,11 +240,13 @@
           "town",
           "castle",
           "temple"
-        ]
+        ],
+        "resolve": "bp lodge"
       },
       {
         "cite": "r203",
-        "what": "Advance the time track one day. The game is lost on day 71."
+        "what": "Advance the time track one day. The game is lost on day 71.",
+        "resolve": "bp time +1"
       }
     ],
     "one_action_note": "One action per day, and the whole party does it. Some events grant a bonus action, others force the time track forward several days (r203)."

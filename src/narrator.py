@@ -34,6 +34,10 @@ import urllib.request
 from pathlib import Path
 
 import markup
+# The map rules - which side of the Tragoth a hex is on, whether it can be
+# hunted - are read straight from bp's own implementation rather than copied.
+# Everything that changes the game still goes through the bp subprocess.
+import procedures
 
 ROOT = Path(__file__).resolve().parent.parent
 # Invoked as a module with this same interpreter rather than through a
@@ -350,12 +354,48 @@ HEX_IN = re.compile(r"you are in\D*?(\d{4})\b")
 TREASURE_OUT = re.compile(r":\s*(\d+)\s*$")  # "...on 4: 2"  -> 2
 
 
-def ask_die(prompt: str, die: str) -> int | None:
+# A walked sequence talks to the player directly - "roll 2d6", "the party eats
+# three units" - and those sentences are the only ones in the program that no
+# model and no `bp show` composes. They still have to be heard: a player looking
+# away from the screen was being asked for a die by nothing but a `>`.
+#
+# The screen keeps the rule cite and the die notation, because that is what a
+# referee checks the walk against. Neither has a spoken form - "(r215b)" comes
+# out of the synth as letters, "2d6" as "two d six" - so the voice gets the
+# sentence without them, and section ids are read the way bp reads them.
+CITE = re.compile(r"\s*\((?:[re]\d{3}[a-f]?)(?:[,;]\s*[re]\d{3}[a-f]?)*\)")
+DICE = re.compile(r"\b([12])d6\b")
+SECTION = re.compile(r"\b([re])(\d{3})\b")
+
+
+def spoken(line: str) -> str:
+    """One of the walk's own lines, as a person would say it."""
+    line = CITE.sub("", line)
+    line = DICE.sub(lambda m: "one die" if m.group(1) == "1" else "two dice", line)
+    line = SECTION.sub(
+        lambda m: f"{'rule' if m.group(1) == 'r' else 'event'} {m.group(2)}", line)
+    return re.sub(r"\s+([.,;])", r"\1", line).strip()
+
+
+def tell(speaker: Speaker, line: str) -> None:
+    """Say something to the player in the walk's own voice - print it and speak it.
+
+    Everything else the player hears comes from bp or the model. These lines are
+    the sequence itself asking and reporting, and they are spoken for the same
+    reason bp's prose is: the game is played by ear.
+    """
+    print(f"\n{ASIDE}{markup.wrap(line)}{RESET}")
+    speaker.say(spoken(line))
+
+
+def ask_die(prompt: str, die: str, speaker: Speaker) -> int | None:
     """Ask the player for a roll. None if they abandon setup."""
     lo, hi = (1, 6) if die == "1d6" else (2, 12)
+    tell(speaker, prompt)
     while True:
         try:
-            said = input(f"\n{ASIDE}{prompt}\n  roll {die} > {RESET}").strip()
+            said = input(f"{ASIDE}  roll {die} > {RESET}").strip()
+            speaker.stop()
         except EOFError:
             return None
         if said in ("/quit", "/exit"):
@@ -380,7 +420,7 @@ def run_setup(speaker: Speaker, referee: bool) -> str | None:
             run_bp(["show", step["read"]], speaker, referee)
 
         if step["id"] == "stats":
-            roll = ask_die(step["prompt"], step["die"])
+            roll = ask_die(step["prompt"], step["die"], speaker)
             if roll is None:
                 return None
             wits = max(roll, 2)  # r202: a 1 counts as 2
@@ -389,7 +429,7 @@ def run_setup(speaker: Speaker, referee: bool) -> str | None:
                   f"{step['fixed']}{RESET}")
 
         elif step["id"] == "gold":
-            roll = ask_die(step["prompt"], step["die"])
+            roll = ask_die(step["prompt"], step["die"], speaker)
             if roll is None:
                 return None
             out = run_bp(["treasure", "2", str(roll)], speaker, referee)
@@ -401,7 +441,7 @@ def run_setup(speaker: Speaker, referee: bool) -> str | None:
                       f"table - enter it yourself below{RESET}")
 
         elif step["id"] == "hex":
-            roll = ask_die(step["prompt"], step["die"])
+            roll = ask_die(step["prompt"], step["die"], speaker)
             if roll is None:
                 return None
             out = run_bp(["start", str(roll)], speaker, referee)
@@ -430,21 +470,67 @@ def run_setup(speaker: Speaker, referee: bool) -> str | None:
 
 # --- dusk -----------------------------------------------------------------
 #
-# The end of a day is six checks in a fixed order (procedures.json, `day`), and
+# The end of a day is a fixed order of checks (procedures.json, `day`), and
 # forgetting them is silent: nobody eats, the guard never rolls, and the date
 # never moves. A narrator asked to remember them will sometimes narrate "we move
 # to Day 2" having done none of it. So the code walks them, the same way it
-# walks setup - the only judgment in the whole sequence is what to do when e002
-# actually fires, and that is handed back.
+# walks setup - the judgment is the player's (hunt or not, buy or eat stores)
+# and what to do when e002 actually fires is handed back to the model.
+#
+# Nothing here asks the player a question the map can answer. Which side of the
+# Tragoth they are on and whether the hex can be hunted are both in the data,
+# and asking instead put the burden of the rules back on the person who came to
+# play a game.
 
 SHEET_HEX = re.compile(r"\bhex (\d{4})\b")
 SHEET_DAY = re.compile(r"\bday (\d+) of\b")
+SHEET_FOOD = re.compile(r"\bfood (\d+) units?\b")
+SHEET_GOLD = re.compile(r"\bgold (\d+)\b")
 LODGING = ("town", "castle", "temple")
 E002_BONUS = ("0101", "1501")   # Ogon and Weshor: the guard looks hardest there
+
+# `bp game log` keeps a line per change, tagged with the day it happened on. A
+# step recorded there today has been done - by this walk, by the model calling
+# `bp eat` itself, or by an earlier /dusk - and doing it twice buys a second
+# dinner and a second night's rooms with money the party has not got.
+LOG_ROW = re.compile(r"^\s*day\s+(\d+)\s+(.*)$", re.M)
+LOG_MARKS = {"meal:": "eat", "went without food": "eat", "wages:": "pay",
+             "lodging:": "lodge", "hunting": "hunt"}
+ALREADY = {"eat": "the meal", "pay": "the wages", "lodge": "the lodging",
+           "hunt": "a hunt"}
 
 # Which day's dusk has already been walked, so advancing time twice or calling
 # /dusk again after an e002 fight does not re-roll the guard or re-feed anyone.
 _done: dict[int, set[str]] = {}
+
+
+class Reference:
+    """Just enough of bp's Book for the map lookups in procedures.py.
+
+    Which side of the Tragoth a hex lies on, and whether it can be hunted, are
+    rules - so they are read from the one implementation in procedures.py rather
+    than worked out again here. Two answers to "is this north of the river" is
+    one answer too many.
+    """
+
+    def __init__(self):
+        self.map = read_data("map.json")
+        self.travel = read_data("travel.json")
+
+
+def read_data(name: str) -> dict | None:
+    path = ROOT / "data" / name
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+_book: Reference | None = None
+
+
+def book() -> Reference:
+    global _book
+    if _book is None:
+        _book = Reference()
+    return _book
 
 
 def sheet(args) -> tuple[int, str] | None:
@@ -455,11 +541,98 @@ def sheet(args) -> tuple[int, str] | None:
     return (int(d.group(1)), h.group(1)) if d and h else None
 
 
+def purse() -> tuple[int, int] | None:
+    """Food and gold as the sheet has them now, or None if it cannot be read.
+
+    What a dusk step actually cost is the difference across it. Reading the two
+    numbers off the sheet either side of the command is the one way of knowing
+    that does not depend on parsing the sentence bp wrote about it - so a
+    reworded `bp eat` cannot quietly turn the report into a lie.
+    """
+    p = subprocess.run([*BP, "game", "-b"], capture_output=True, text=True)
+    both = p.stdout + p.stderr
+    f, g = SHEET_FOOD.search(both), SHEET_GOLD.search(both)
+    return (int(f.group(1)), int(g.group(1))) if f and g else None
+
+
+def moved(before: tuple[int, int] | None) -> tuple[tuple[int, int] | None, int, int]:
+    """(the sheet now, food gained, gold spent) across a step just run.
+
+    An unreadable sheet reports no movement rather than guessing at one: a
+    report that says nothing is a gap the player can ask about, and a report
+    that says the wrong number is one they cannot.
+    """
+    now = purse()
+    if before is None or now is None:
+        return now, 0, 0
+    return now, now[0] - before[0], before[1] - now[1]
+
+
 def features(hexid: str) -> list[str]:
-    path = ROOT / "data" / "map.json"
-    if not path.exists():
-        return []
-    return (json.loads(path.read_text())["hexes"].get(hexid) or {}).get("features") or []
+    hexes = (book().map or {}).get("hexes", {})
+    return (hexes.get(hexid) or {}).get("features") or []
+
+
+def north_of_river(hexid: str) -> bool | None:
+    """True north of the Tragoth, False south, None if the map cannot say."""
+    return procedures.north_flag(book(), hexid) if book().map else None
+
+
+def may_hunt(hexid: str) -> bool | None:
+    """True if r215b allows a hunt in this hex, None if the map cannot say."""
+    if not (book().map and book().travel):
+        return None
+    return procedures.hunt_flag(book(), hexid)
+
+
+def already_today(day: int) -> set[str]:
+    """The dusk steps the sheet's own log says have been done today."""
+    p = subprocess.run([*BP, "game", "log", "-n", "60"], capture_output=True,
+                       text=True)
+    out = set()
+    for d, what in LOG_ROW.findall(p.stdout + p.stderr):
+        if int(d) != day:
+            continue
+        for mark, name in LOG_MARKS.items():
+            if what.lower().startswith(mark):
+                out.add(name)
+    return out
+
+
+def run_step(cmd: list[str], speaker: Speaker, referee: bool) -> tuple[bool, str]:
+    """One dusk command. (did it work, what bp said on stderr)."""
+    out = json.loads(run_bp(cmd, speaker, referee))
+    return out["exit"] == 0, (out["stderr"] or "").strip()
+
+
+def blocked(day: int, cmd: list[str], err: str) -> str:
+    """What to hand the model when a dusk step refuses - the day stays open."""
+    return (f"Day {day} is NOT closed out. `bp {' '.join(cmd)}` refused, so "
+            f"nothing after it has happened: no wages, no lodging, and the date "
+            f"has not moved. bp said, to you only:\n\n{err}\n\nThe player heard "
+            f"none of that. Put the choice to them in your own words, do what "
+            f"they decide, and then tell them to type /dusk to finish the day.")
+
+
+def units(n: int) -> str:
+    return f"{n} food unit" + ("" if n == 1 else "s")
+
+
+def ask_hunter(speaker: Speaker) -> str | None:
+    """Who hunts tonight, or None. r215b: any one character in the party."""
+    prince, others = roster()
+    who = ", ".join([prince or "", *others]).strip(", ")
+    tell(speaker, "Hunting is allowed here (r215b). Name the hunter, or skip it.")
+    print(f"{DIM}  the hunter's name, enter for {prince or 'nobody'}, "
+          f"or 'n' to skip{' - party: ' + who if others else ''}{RESET}")
+    try:
+        said = ask(f"  {ASIDE}>{RESET} ")
+    except Abandoned:
+        return None
+    speaker.stop()
+    if said.lower() in ("n", "no", "skip"):
+        return None
+    return said or prince
 
 
 def run_dusk(speaker: Speaker, referee: bool) -> str | None:
@@ -470,23 +643,38 @@ def run_dusk(speaker: Speaker, referee: bool) -> str | None:
         return None
     day, hexid = now
     done = _done.setdefault(day, set())
+    logged = already_today(day)
+    done |= logged
     feats = features(hexid)
+    north = north_of_river(hexid)
+    hunting = may_hunt(hexid)
     told = []
 
     if referee:
-        print(f"{DIM}[dusk: day {day}, hex {hexid}, features {feats or 'none'}]{RESET}")
+        side = {True: "north of the Tragoth", False: "south of the Tragoth",
+                None: "side of the Tragoth unknown"}[north]
+        print(f"{DIM}[dusk: day {day}, hex {hexid}, features {feats or 'none'}, "
+              f"{side}, hunting {hunting}, already done "
+              f"{', '.join(sorted(done)) or 'nothing'}]{RESET}")
 
-    # e002, north of the Tragoth: after events, before the meal. Whether the
-    # party is north of it is not in the map data, so the player says.
-    if "e002" not in done:
+    # e002, north of the Tragoth: after events, before the meal. South of it
+    # there is no check and the player is not asked; north of it they are asked
+    # for the die and nothing else. Only an unreadable map brings back the
+    # question of which side they are on.
+    if "e002" not in done and north is not False:
         bonus = 1 if hexid in E002_BONUS else 0
-        prompt = (f"\n{ASIDE}End of day {day}. If you are north of the Tragoth, "
-                  f"roll 1d6 for e002 (subtract 3"
-                  f"{f', add 1 for {hexid}' if bonus else ''}).\n"
-                  f"  1d6, or 's' if you are south of the river > {RESET}")
+        where = (f"You are north of the Tragoth, in {hexid}, so the mercenary "
+                 f"royal guardsmen may find you."
+                 if north else
+                 f"The map cannot tell me which side of the Tragoth {hexid} is on.")
+        escape = "" if north else " Or say 's', if you know you are south of it."
+        retry = "1-6." if north else "1-6, or 's'."
+        tell(speaker, f"End of day {day}. {where} Roll 1d6 for e002 and "
+                      f"subtract 3{f', adding 1 for {hexid}' if bonus else ''}."
+                      f"{escape}")
         while True:
             try:
-                said = input(prompt).strip().lower()
+                said = input(f"{ASIDE}  roll 1d6 > {RESET}").strip().lower()
                 speaker.stop()
             except EOFError:
                 return None
@@ -517,27 +705,138 @@ def run_dusk(speaker: Speaker, referee: bool) -> str | None:
                             f"happened yet; once the encounter is settled tell the "
                             f"player to type /dusk to close the day out.")
                 break
-            print(f"{DIM}  1-6, or 's'.{RESET}")
+            print(f"{DIM}  {retry}{RESET}")
+
+    # The hunt (r215b), before the meal and only where the rules allow it. It is
+    # the step the model never offered at all: a party in open country can eat
+    # for nothing, and instead it silently ran the stores down.
+    if "hunt" not in done and hunting:
+        hunter = ask_hunter(speaker)
+        if hunter:
+            die = ask_die(f"{hunter} hunts for tonight's food (r215b).", "2d6",
+                          speaker)
+            if die is not None:
+                was = purse()
+                ok, err = run_step(["hunt", hunter, str(die), "--hex", hexid],
+                                   speaker, referee)
+                if not ok:
+                    # Not fatal - the meal can still come out of stores - but not
+                    # silent either. bp said why it would not roll, and the
+                    # player is the one who has to decide what to do instead.
+                    tell(speaker, f"No hunt: "
+                                  f"{err.splitlines()[0] if err else 'bp refused'}")
+                elif die == 12:
+                    # r215b: a 12 hurts the hunter whatever else happened, and
+                    # nothing is banked until the wound is rolled - if it knocks
+                    # him out the hunt failed after all and he dies. That is a
+                    # die and a judgment, so it goes back rather than being
+                    # walked, and the day stays open behind it.
+                    done.add("hunt")
+                    tell(speaker, f"The roll was 12 exactly, so {hunter} was hurt "
+                                  f"in the hunt (r215b). Nothing is on the sheet "
+                                  f"until the wound is rolled.")
+                    return (f"It is the end of day {day} in hex {hexid}. {hunter} "
+                            f"hunted and rolled 12 exactly, so he is hurt (r215b) "
+                            f"and neither the food nor the wound is on the sheet "
+                            f"yet. The player has been told that much and no more. "
+                            f"Ask for 1d6 and do what bp says below.\n\n"
+                            f"[referee only]\n{err}\n\n"
+                            f"The meal, any wages, lodging and the date have NOT "
+                            f"happened yet; once the wound is settled tell the "
+                            f"player to type /dusk to close the day out.")
+                else:
+                    # Only a hunt that happened is done. Declining is not: the
+                    # meal below may refuse for want of the food, and the way
+                    # out of that is the offer coming round again on the next
+                    # /dusk rather than being remembered as settled.
+                    done.add("hunt")
+                    have, got, _ = moved(was)
+                    if got > 0:
+                        say = (f"{hunter} brings back {units(got)}"
+                               + (f", so the party has {have[0]}." if have else "."))
+                    else:
+                        say = (f"{hunter} comes back empty-handed - the hunt "
+                               f"brought in nothing tonight (r215b).")
+                    tell(speaker, say)
+                    told.append(say)
 
     if "eat" not in done:
-        run_bp(["eat", "--hex", hexid], speaker, referee)
+        # r215d: in a town, castle or temple a meal can be bought instead of
+        # eating stores, and hunting is prohibited. Which one is the player's
+        # money, so it is the player's call.
+        buy = ""
+        if any(f in LODGING for f in feats):
+            tell(speaker, "There is somewhere here to buy a meal. Buy tonight's "
+                          "meals at a gold a head, or eat stores? (r215d)")
+            try:
+                buy = ask_one("  [buy/stores]", {"buy": "--buy", "stores": ""}, "")
+            except Abandoned:
+                return None
+            speaker.stop()   # they have answered; the question can stop asking
+        cmd = ["eat", "--hex", hexid] + ([buy] if buy else [])
+        was = purse()
+        ok, err = run_step(cmd, speaker, referee)
+        if not ok:
+            return blocked(day, cmd, err)
         done.add("eat")
-        told.append("the party ate")
+        have, got, paid = moved(was)
+        if paid:
+            say = f"The meals are bought, {paid} gold."
+        elif got < 0:
+            say = f"The party eats {units(-got)}."
+        else:
+            say = "The party eats."
+        if have:
+            say += f" {units(have[0])} left, and {have[1]} gold."
+        tell(speaker, say)
+        told.append(say)
 
     if "pay" not in done:
-        run_bp(["pay"], speaker, referee)
+        was = purse()
+        ok, err = run_step(["pay"], speaker, referee)
+        if not ok:
+            return blocked(day, ["pay"], err)
         done.add("pay")
+        have, _, paid = moved(was)
+        # A party of one owes nobody, and "no wages were paid" every night for
+        # seventy nights is noise. Only money that actually moved is reported.
+        if paid:
+            say = (f"Wages are paid, {paid} gold"
+                   + (f", leaving {have[1]}." if have else "."))
+            tell(speaker, say)
+            told.append(say)
 
     if "lodge" not in done and any(f in LODGING for f in feats):
-        run_bp(["lodge"], speaker, referee)
+        was = purse()
+        ok, err = run_step(["lodge"], speaker, referee)
+        if not ok:
+            return blocked(day, ["lodge"], err)
         done.add("lodge")
-        told.append("lodging was paid")
+        have, _, paid = moved(was)
+        say = (f"Rooms and stables for the night, {paid} gold"
+               + (f", leaving {have[1]}." if have else "."))
+        tell(speaker, say)
+        told.append(say)
 
     run_bp(["time", "+1"], speaker, referee)
-    return (f"Day {day} is closed out in hex {hexid}: the e002 check was made, "
-            f"{', '.join(told) or 'nothing was owed'}, and the date is now day "
-            f"{day + 1}. Tell the player what the new day looks like and ask for "
-            f"their action.")
+    if logged:
+        told.append("The sheet already had " +
+                    " and ".join(sorted(ALREADY[k] for k in logged)) +
+                    " for today, so none of that was done twice.")
+    checked = ("The e002 check was made." if north is not False else
+               f"{hexid} is south of the Tragoth, so there was no e002 check.")
+    # The walk now speaks its own results as they happen - the player hears what
+    # the hunt brought in and what the meal cost while the dice are still in
+    # their hand, rather than waiting for the narration. So this hands back what
+    # they have already been told, marked as told: a narrator that repeats it
+    # says the numbers twice, and one that is not given them contradicts them.
+    return (f"Day {day} is closed out in hex {hexid}, and the date is now day "
+            f"{day + 1}. {checked}\n\nThe player has already been shown and told "
+            f"the following, in these words. Do not repeat it and do not "
+            f"contradict it:\n"
+            + "\n".join(f"  {t}" for t in told or ["Nothing was owed."])
+            + f"\n\nTell the player what the new day looks like and ask for "
+              f"their action.")
 
 
 # --- loading a game -------------------------------------------------------
@@ -806,7 +1105,7 @@ COMMANDS = {
     "/load": "/load <name> to resume a save, /load alone to list them",
     "/lookup": "/lookup r220 - read a section of the book aloud, no narration",
     "/fight": "roll a whole fight out: you type both sides, nothing is saved",
-    "/dusk": "close out the day: e002, the meal, wages, lodging, the date",
+    "/dusk": "close out the day: e002, the hunt, the meal, wages, lodging, the date",
     "/referee": "toggle showing the tool calls and bp's stderr",
     "/help": "this list",
     "/quit": "stop",
@@ -822,7 +1121,12 @@ MAX_TOOL_ROUNDS = 12  # a turn that never stops calling tools is a bug, not a ga
 # the prose undelivered. That is recoverable without prompting harder: notice
 # the named command, say so, and let it try again. Nudging beats pleading.
 NAMED_COMMAND = re.compile(r"`?\bbp\s+([a-z]+(?:\s+[^\s`\n]+){0,5})`?")
-SKIP_NUDGE = re.compile(r"\bbp\s+(game|party|food|gold|time|eat|lodge|pay|foe)\b")
+# The sheet commands that a narrator mentions legitimately - "you have food for
+# three more days" cites `bp food` without owing the player a call. `time`,
+# `eat`, `pay` and `lodge` are deliberately not on this list: writing one of
+# those and not calling it is the end of the day never happening, which is the
+# failure the nudge exists for.
+SKIP_NUDGE = re.compile(r"\bbp\s+(game|party|food|gold|foe)\b")
 
 
 def named_but_uncalled(text: str) -> str | None:
@@ -831,6 +1135,23 @@ def named_but_uncalled(text: str) -> str | None:
     if not m or SKIP_NUDGE.search(m.group(0)):
         return None  # sheet commands are often mentioned legitimately in prose
     return m.group(1).strip()
+
+
+def is_dusk(args: list[str]) -> bool:
+    """Is this tool call an attempt to close the day out?
+
+    `bp time +1` is the documented way and the model reaches for it, but a model
+    told "the dusk checks" will also just call `["dusk"]` - which bp has no
+    command for, so argparse rejects it and the day quietly never ends. Since
+    dusk is the one thing here that is not a bp command at all, accept the
+    obvious names for it rather than failing on a spelling.
+    """
+    first = args[:1]
+    if first == ["time"] and args[1:2] in (["+1"], ["1"]):
+        return True
+    joined = " ".join(a.lower() for a in args)
+    return joined in ("dusk", "endday", "end day", "day end", "evening",
+                      "nightfall", "time dusk")
 
 
 def take_turn(messages: list[dict], speaker: Speaker, referee: bool):
@@ -873,7 +1194,7 @@ def take_turn(messages: list[dict], speaker: Speaker, referee: bool):
             if isinstance(args, str):        # some models emit a bare string
                 args = args.split()
             args = [str(a) for a in args]
-            if args[:1] == ["time"] and args[1:2] in (["+1"], ["1"]):
+            if is_dusk(args):
                 summary = run_dusk(speaker, referee)
                 messages.append({"role": "tool", "tool_name": "bp", "content":
                                  json.dumps({"stdout": "", "stderr": summary or

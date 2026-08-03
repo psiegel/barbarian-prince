@@ -119,6 +119,59 @@ def hex_entry(book, hid: str) -> dict | None:
     return (book.map or {}).get("hexes", {}).get(hid)
 
 
+def hexes_of(book) -> dict:
+    return (book.map or {}).get("hexes", {})
+
+
+# --- which side of the Tragoth ---------------------------------------------
+#
+# e002 is checked at the end of any day that finishes north of the Tragoth
+# River, and nothing on the character sheet says which side of it the party is
+# on. The map data does, if you read it the right way.
+#
+# The Tragoth is the most northerly river on the board: nothing runs north of
+# it. That, not its direction, is what makes this work. In this layout N and S
+# are the horizontal edges, so a river running east-west anywhere lies on them,
+# and the map records a hexside on both hexes that share it.
+#
+# So walk north up the column. A river found on some hex's N edge need not be
+# the Tragoth - the others wander east and west too - but it does not have to
+# be: every river on the board is either the Tragoth or south of it, and either
+# way the party is south of the Tragoth. Reaching row 01 with nothing found is
+# the other half: the Tragoth crosses all twenty columns, so if it is not
+# between this hex and the north edge, the hex is north of it.
+#
+# The result is the twenty-one hexes of rows 01-02 that the booklet calls the
+# Northlands, all six starting hexes among them (e001). 1401 is the one that
+# looks wrong and is not: the Tragoth touches the top of the map there, so the
+# river is on 1401's own N edge and the hex is south of it.
+
+def north_of_tragoth(hexes: dict, hid: str) -> bool:
+    """True if the hex lies north of the Tragoth, so e002 applies at dusk."""
+    x, y = parse_hex(hid)
+    if hid not in hexes:
+        raise Refuse(f"hex {hid} is not in the map data, so I cannot tell which "
+                     f"side of the Tragoth River it is on. Ask the player.")
+    for row in range(y, 0, -1):
+        above = fmt_hex(x, row)
+        entry = hexes.get(above)
+        if entry is None:
+            raise Refuse(f"the map data has no hex {above}, which is between {hid} "
+                         f"and the north edge, so I cannot tell which side of the "
+                         f"Tragoth River {hid} is on. Ask the player.")
+        if "N" in (entry.get("river") or []):
+            return False
+    return True
+
+
+def tragoth_note(hexes: dict, hid: str) -> str:
+    """One line for the referee: which side, and what it means tonight."""
+    if north_of_tragoth(hexes, hid):
+        return ("north of the Tragoth River - check e002 at the end of a day that "
+                "finishes here, after events and before the meal (e001)")
+    return "south of the Tragoth River - no e002 check here (e001)"
+
+
 def hexside(book, a: str, b: str) -> dict[str, bool]:
     """Is there a river or a road on the hexside between two adjacent hexes?
 
@@ -197,6 +250,35 @@ def terrain_key(book, name: str) -> str:
     if len(hits) > 1:
         raise Refuse(f"{name!r} is ambiguous: {', '.join(hits)}")
     raise Refuse(f"unknown terrain {name!r}. try: {opts}, rafting")
+
+
+LODGING_FEATURES = ("town", "castle", "temple")
+
+
+def hunting_here(book, hid: str) -> tuple[bool, str]:
+    """r215b/r215c: may the party hunt in this hex, and why if not.
+
+    The terrain half is the travel table's own Hunting column rather than a list
+    kept here, so it cannot drift from the printed table. The prohibition in a
+    town, castle or temple hex is r215c and is not on the table at all.
+    """
+    entry = hex_entry(book, hid)
+    if entry is None:
+        raise Refuse(f"no map data for hex {hid}, so I cannot tell whether hunting "
+                     f"is allowed there (r215b). Ask the player.")
+    blocked = [f for f in (entry.get("features") or []) if f in LODGING_FEATURES]
+    if blocked:
+        return False, (f"hunting is prohibited in a hex with a {blocked[0]} - buy a "
+                       f"meal or eat stores (r215c, r215d)")
+    try:
+        key = terrain_key(book, hid)
+    except Refuse as e:
+        raise Refuse(f"{e}\nSo I cannot tell whether hunting is allowed here "
+                     f"(r215b) - ask the player.")
+    row = book.travel["terrain"][key]
+    if row["hunt"].strip().lower().startswith("y"):
+        return True, f"hunting is allowed in {row['name'].lower()} (r215b)"
+    return False, f"no hunting in {row['name'].lower()} (r215b)"
 
 
 def threshold(spec: str) -> int | None:
@@ -472,6 +554,10 @@ def _hex(book, args) -> int:
     if entry and len(entry.get("terrain") or []) > 1:
         print("  this hex straddles two terrains - ask which one applies before "
               "rolling")
+    try:
+        print(f"  {tragoth_note(hexes_of(book), args.id)}")
+    except Refuse as e:
+        print(f"  {e}")
     print("\nadjacent:")
     for d, h in neighbours(x, y).items():
         known = hex_entry(book, h)
@@ -490,6 +576,26 @@ def _hex(book, args) -> int:
 
 
 # --- bp day ---------------------------------------------------------------
+
+
+def north_flag(book, hid: str | None) -> bool | None:
+    """True north of the Tragoth, False south, None when it cannot be told."""
+    if not hid:
+        return None
+    try:
+        return north_of_tragoth(hexes_of(book), hid)
+    except Refuse:
+        return None
+
+
+def hunt_flag(book, hid: str | None) -> bool | None:
+    """True if this hex allows hunting, False if not, None when it cannot be told."""
+    if not hid:
+        return None
+    try:
+        return hunting_here(book, hid)[0]
+    except Refuse:
+        return None
 
 
 def cmd_day(book, args) -> int:
@@ -544,9 +650,14 @@ def _day_plan(book, args) -> int:
     print(head)
     print("=" * len(head))
     print()
+    # A hex id answers the "what is here" question outright, features or none, so
+    # from then on the filters run even where the list came out empty: 1017 has
+    # no town, and offering to hire followers there is the same wrong answer as
+    # offering it in a desert.
+    filtered = bool(hexes) or located is not None
     for a in day["actions"]:
-        allowed = a["hexes"] == "any" or (hexes and any(h in a["hexes"] for h in hexes))
-        if hexes and not allowed:
+        allowed = a["hexes"] == "any" or any(h in a["hexes"] for h in hexes)
+        if filtered and not allowed:
             continue
         where = "" if a["hexes"] == "any" else f"  [{'/'.join(a['hexes'])} only]"
         print(f"  {a['name']:<18} {a['cite']}{where}")
@@ -554,17 +665,37 @@ def _day_plan(book, args) -> int:
             print(f"  {'':<18} {a['note']}")
         if a.get("resolve"):
             print(f"  {'':<18} -> {a['resolve']}")
-    if not hexes:
-        print("\n  (pass the hex type - town, castle, temple, ruins - to filter these)")
+    if not filtered:
+        print("\n  (pass the hex id, or the type - town, castle, temple, ruins - "
+              "to filter these)")
     print(f"\n{day['one_action_note']}")
 
     print("\nEnd of day, in this order:")
     for c in day["endofday"]:
         when = c.get("when")
-        if when and when != "north" and hexes and not any(h in when for h in hexes):
+        flag = ""
+        if when == "north":
+            # Which side of the river the party is on is in the map data, so
+            # settle it here rather than printing a condition for someone else
+            # to guess at - the guess is what puts e002 in the wrong game.
+            side = north_flag(book, located)
+            if side is False:
+                continue
+            flag = (f"  [{located} is north of it]" if side else
+                    "  [only north of the Tragoth - no hex was given, so ask the "
+                    "player which side of it they are on]")
+        elif when == "hunting":
+            hunt = hunt_flag(book, located)
+            if hunt is False:
+                continue
+            flag = "" if hunt else "  [only where hunting is allowed - ask the player]"
+        elif when and filtered and not any(h in when for h in hexes):
             continue
-        flag = "  (only north of the Tragoth)" if when == "north" else ""
         print(f"  - {c['what']} ({c['cite']}){flag}")
+        if c.get("resolve"):
+            print(f"    -> {c['resolve']}")
+    print("\n-> bp time +1 when the day's action and events are done. That runs "
+          "this whole list in order and moves the date; nothing else does.")
     if unknown:
         print(f"\nnote: no action is gated on {', '.join(unknown)} - "
               f"treat it as open terrain.", file=sys.stderr)

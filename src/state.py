@@ -961,6 +961,124 @@ def fodder_here(book, g, args) -> bool | None:
     return book.travel["terrain"][key]["fodder"].strip().lower().startswith("y")
 
 
+def cmd_hunt(book, args) -> int:
+    """r215b: one character hunts, and what he brings back feeds the party tonight.
+
+    The arithmetic is small and gets skipped: combat skill plus half his current
+    endurance, less 2d6, is food units - so a hunt in the wrong terrain, or with
+    the wounded man's undiminished endurance, is a free meal the party never
+    earned. The dice are the player's; everything either side of them is here.
+    """
+    try:
+        g = load_game(args)
+        hid = args.hex or g.get("hex")
+        where = ""
+        if args.anywhere:
+            where = "terrain check skipped (--anywhere)"
+        elif not hid:
+            raise Refuse("I do not know where the party is, so I cannot tell "
+                         "whether hunting is allowed (r215b). Pass --hex <id>, or "
+                         "--anywhere if the section grants the hunt.")
+        else:
+            # procedures.Refuse is this module's Refuse's parent, so it has to
+            # be caught and re-raised to be reported rather than traced back.
+            try:
+                allowed, why = procedures.hunting_here(book, hid)
+            except procedures.Refuse as e:
+                raise Refuse(str(e))
+            if not allowed:
+                raise Refuse(f"hex {hid}: {why}. Nothing was rolled and no food was "
+                             f"gained.")
+            where = f"hex {hid}: {why}"
+
+        if not 2 <= args.roll <= 12:
+            raise Refuse(f"{args.roll} is not a 2d6 result (2-12).")
+
+        hunter = find(g["party"], args.hunter)
+        if is_mount(hunter):
+            raise Refuse(f"{hunter['name']} is a mount. Any one character can hunt, "
+                         f"but not an animal (r215b).")
+        if dead(hunter) or unconscious(hunter):
+            raise Refuse(f"{hunter['name']} is {condition(hunter)} and cannot hunt.")
+
+        # r215b: combat skill + half current endurance (endurance less wounds),
+        # fractions down. Starvation has already taken its point off the combat
+        # skill (r216b), which is what effective_cs is for.
+        cs = effective_cs(hunter)
+        stamina = (hunter["end"] - hunter["wounds"]) // 2
+        level = cs + stamina
+        bits = [f"combat skill {cs}", f"half of {hunter['end'] - hunter['wounds']} "
+                f"endurance = {stamina}"]
+        if hunter["guide"]:
+            level += 1
+            bits.append("+1, he is a guide")
+        extras = [find(g["party"], n) for n in args.extra]
+        for ch in extras:
+            if is_mount(ch):
+                raise Refuse(f"{ch['name']} is a mount and cannot hunt (r215b).")
+            if dead(ch) or unconscious(ch):
+                raise Refuse(f"{ch['name']} cannot join the hunt - "
+                             f"{condition(ch)}.")
+            level += 1 + (1 if ch["guide"] else 0)
+        if extras:
+            guides = [c["name"] for c in extras if c["guide"]]
+            bits.append(f"+{len(extras) + len(guides)} for "
+                        f"{plural(len(extras), 'extra hunter')}"
+                        + (f", including {plural(len(guides), 'guide')}"
+                           if guides else ""))
+        units = level - args.roll
+
+        hurt = args.roll == 12
+        gained = max(0, units)
+        # On a 12 the hunter is hurt whatever else happened, and if the wound
+        # roll knocks him out the hunt failed after all (r215b) - so the food is
+        # named but not banked until the player has rolled it.
+        if gained and not hurt:
+            g["food"] += gained
+            note(g, f"hunting (r215b): {hunter['name']} brought back "
+                    f"{plural(gained, 'food unit')}")
+            write_game(g)
+    except Refuse as e:
+        print(e, file=sys.stderr)
+        return 1
+
+    print(f"Hunting (r215b) - {where}")
+    print(f"  {hunter['name']}: {level} ({'; '.join(bits)}), less 2d6 "
+          f"{args.roll} -> {units}")
+    if units <= 0:
+        print("  the hunt was unsuccessful - no food (r215b)")
+    elif hurt:
+        print(f"  {plural(units, 'food unit')}, NOT yet on the sheet - see below")
+    else:
+        print(f"  {plural(gained, 'food unit')} gained; food is now {g['food']}")
+    if extras:
+        print("  extra hunters only count if the party rested in this hex today "
+              "(r215b) - check that with the player.")
+    if hurt:
+        print(f"\nThe roll was 12 exactly, so the hunter was hurt whatever else "
+              f"happened (r215b). Roll 1d6 for the wounds: "
+              f"bp party wound {hunter['name']!r} +<die>")
+        print("  If that knocks him unconscious or kills him, the hunt "
+              "automatically fails and he dies - unless someone hunted with him.")
+        if units > 0:
+            print(f"  If he is still standing, bp food +{units} for what he "
+                  f"brought back.")
+    if not args.anywhere and hid and "farmland" in (
+            procedures.hex_entry(book, hid) or {}).get("terrain", []):
+        print("\nFarmland, so there is a check for being seen (r215c): roll 1d6 "
+              "now, after the hunt and before the meal.")
+        print("  1-4 nothing; 5 - a peasant mob is in pursuit, e017; 6 - pursued "
+              "by the constabulary, e050, adding two (+2) to the die in that event.")
+    # The units go into the store and the meal comes out of it, so the hunt is
+    # never counted twice and whatever is left over is carried - one load a unit
+    # (r215e). `bp eat --free` would be the double count; do not offer it here.
+    print("\nThen the meal, out of the store the hunt has just topped up: bp eat "
+          "(r215). Anything left over is carried, one load a unit (r215e)."
+          if gained and not hurt else
+          "\nThe meal still has to come from stores or be bought: bp eat (r215).")
+    return 0
+
+
 def cmd_eat(book, args) -> int:
     """r215: the evening meal, and r216 for whoever goes without."""
     try:
@@ -1013,9 +1131,10 @@ def cmd_eat(book, args) -> int:
                     f"the meal needs {plural(units, 'food unit')} "
                     f"({'; '.join(detail)}) and "
                     f"you have {g['food']}. Nothing has been eaten. Either hunt "
-                    f"(r215b, in farmland/countryside/forest/hills/swamp), buy a "
-                    f"meal with --buy in a town, castle or temple, or feed some and "
-                    f"starve the rest with --skip <name> (r216).")
+                    f"first - bp hunt <hunter> <2d6>, in farmland, countryside, "
+                    f"forest, hills or swamp (r215b) - or buy a meal with --buy in "
+                    f"a town, castle or temple, or feed some and starve the rest "
+                    f"with --skip <name> (r216).")
             g["food"] -= units
             paid = f"{plural(units, 'food unit')} eaten ({'; '.join(detail)})"
 
@@ -1432,7 +1551,19 @@ def register(sub) -> None:
     d.add_argument("--why", help="dead, deserted, dismissed, sold...")
     d.set_defaults(fn=sheet_command(cmd_party_drop))
 
-    # bp eat / starve / lodge
+    # bp hunt / eat / starve / lodge
+    s = sub.add_parser("hunt", help="hunt for the night's food before the meal (r215b)")
+    game_flag(s)
+    s.add_argument("hunter", help="any one character in the party (r215b)")
+    s.add_argument("roll", type=int, metavar="2d6", help="his roll of two dice")
+    s.add_argument("--extra", nargs="*", default=[], metavar="NAME",
+                   help="more hunters, +1 each - only if the party rested here "
+                        "today (r215b)")
+    s.add_argument("--hex", help="where they are, to check hunting is allowed here")
+    s.add_argument("--anywhere", action="store_true",
+                   help="skip the terrain check, for a section that grants a hunt")
+    s.set_defaults(fn=sheet_command(cmd_hunt))
+
     s = sub.add_parser("eat", help="the evening meal, and who goes without (r215)")
     game_flag(s)
     s.add_argument("--skip", nargs="*", default=[], metavar="NAME",

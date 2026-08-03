@@ -51,6 +51,9 @@ COMMANDS = [
     "start", "start 3", "start --step 1", "day town", "day 0101",
     "move 1017 1118", "hex 1017", "refs r220", "list e", "search lodging",
     "encounter check", "game list", "roll 2d6",
+    # A hunt in the mountains, which r215b never allows: it exercises the
+    # command without moving a food unit on whatever save happens to be current.
+    "hunt Cal 7 --hex 0201",
 ]
 
 
