@@ -26,6 +26,7 @@ It is the largest closed subgraph in the book and the best-behaved:
 
 ```python
 Check(stat, op)         # stat: "wits" | "party_size";  op: "ge" | "gt" | "lt" | "le"
+                        # party_size is living MEN only, not mounts (state.men())
 Fight(initiative)       # "surprise_us" | "we_first" | "they_first" | "surprise_them"
 Escape(requires=None)   # None | "all_mounted" | "all_flying"   -> r218
 Hide(abandon=False)     # -> r218
@@ -40,8 +41,9 @@ genuinely different sections (`>=` vs `>`) — do not collapse them.
 
 ## The classification
 
-> If open question Q1 in the overview resolves to (b), this table and the JSON it
-> becomes move out of git together. It encodes branch structure, not prose.
+> This table encodes branch structure, not prose, and none of the 36 sections it
+> hand-encodes has a table — the eight that do are read from the generated
+> `tables.json`. See overview Q1 for why that split is the copyright boundary.
 
 | Section | Shape |
 |---|---|
@@ -150,9 +152,10 @@ Until plan 03 lands, `EnterCombat` may fall back to the existing
 
 ## Work items
 
-- [ ] Resolve overview Q1 and Q3.
 - [ ] `data/graph.json` — the table above, one entry per section, with a
-      `"cite"` field naming the section it came from and no prose.
+      `"cite"` field naming the section it came from and no prose. Tracked in git;
+      add the `!data/graph.json` exception to `.gitignore` alongside the other
+      four, and add it to the LICENSE scope note.
 - [ ] `src/engine/rules/graph.py` — the eight primitives, plus explicit handlers
       for the seven sections that do not fit (r312, r313, r331, r332, r338, r339,
       r340).

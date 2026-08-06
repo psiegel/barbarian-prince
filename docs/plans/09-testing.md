@@ -95,6 +95,28 @@ The existing suite is good and must keep passing.
 - [ ] `src/audit.py` — see what it already checks and fold it in rather than
       duplicating it.
 
+## The n-gram lint
+
+The repository ships no game text, and by the end of plan 07 it also contains a
+complete implementation of the game's rules. That combination is fine — mechanics
+are not copyrightable — but only while the first half stays true, and it breaks
+quietly: a handler with fallback text, a docstring quoting a section, a fixture
+asserting on prose. Across 171 handlers, discipline will not hold. Make it a test.
+
+- [ ] `tests/test_no_game_text.py` — for every **tracked** text file (`src/`,
+      `docs/`, `tests/`, the tracked `data/*.json`), extract every 8-word
+      sequence and assert none appears in `sections.json`.
+- [ ] Allow-list the functional locators: the `until`/`from` anchors in
+      `procedures.json` and the `find` phrases in `creatures.json`. These are
+      short, are used to match rather than to reproduce, and must stay short —
+      the allow-list is an explicit inventory, not a wildcard.
+- [ ] Skip cleanly when `sections.json` is absent, so the suite still runs for
+      someone who has not built the data.
+- [ ] Run it in the fast subset and the pre-commit hook. A violation should name
+      the file, the line, and the section it overlaps.
+
+See overview Q1 for the reasoning this enforces.
+
 ## Determinism guard
 
 D2 says handlers may not call `random`, read the clock, or read outside `ctx`.

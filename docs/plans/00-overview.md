@@ -195,29 +195,66 @@ throughout; 10 is the reward.
 
 ## Open questions
 
-**Q1 — Where does hand-encoded rule structure live?** Plan 02 needs the branch
-logic of r300–r343 in some machine-readable form. Three options:
+**Q1 — Where does hand-encoded rule structure live?** *Recommendation: (a), with
+the three guardrails below. Awaiting final sign-off.*
 
-- (a) A `data/graph.json` in git, treated like `procedures.json` — cites sections,
-  encodes structure only. *Recommended:* the precedent exists and the file is
-  useless without the git-ignored `sections.json` beside it.
-- (b) The same file, git-ignored, hand-authored — safest on copyright, but the
-  repo no longer bootstraps for anyone else.
-- (c) Structure inline in Python handlers — code is already in git, and the
-  parameters (bribe amounts, hire terms) genuinely vary per caller.
+Plan 02 needs the branch logic of r300–r343 in machine-readable form. The options
+were a tracked `data/graph.json` (a), a git-ignored one (b), or structure inline
+in Python (c).
 
-The plans assume (a) with (c) for anything that needs real logic. Revisit before
-starting plan 02.
+Two things resolve most of it:
 
-**Q2 — Does the player still roll their own dice?** The current design is
-emphatic that they do. The engine supports both (`ctx.die` can accept a typed
-number or roll one), but the *default* changes the feel a lot. Recommended:
-player rolls by default, `--auto-dice` for headless testing and for players who
-would rather not. Plan 09 needs auto-dice regardless.
+*Copyright protects expression, not mechanics.* 17 U.S.C. §102(b) excludes "any
+idea, procedure, process, system, method of operation", and games are the
+textbook application. Prose, artwork, the map and the layout are protected;
+"roll 1d6, compare to wit & wiles, branch" is close to the paradigm case of an
+unprotected procedure, and subject to merger besides — there are very few ways to
+say it. Tables are the gray middle: a designed grid is arguably creative
+selection and arrangement.
 
-**Q3 — "Number of characters in your party" (r303, r319, r320).** Living men, or
-men plus mounts? Reading favours men. Flag it in the handler and let the player
-override.
+*The gray middle is already excluded by construction.* Of the 44 graph sections,
+the eight with real tables — r330, r331, r332, r333, r337, r340, r341, r342 —
+live in the generated, git-ignored `tables.json` and are read from there. The 36
+needing hand encoding are exactly the ones with no table content.
+
+Two tests decide any future file, and they are the ones this repo has been
+applying already:
+
+- **Derivability** — can a program produce it from the PDFs? Then generate it and
+  git-ignore it.
+- **Substitution** — does it reduce anyone's need for the original? `graph.json`
+  cannot say what r317 *says*, only that it is a wit check branching to r218. It
+  is an index, not a copy, and worthless without the book beside it.
+
+The thing to stay deliberate about: by the end of plan 07 this is a complete
+implementation of the game's rules. That is fine — mechanics are not protected —
+but the whole position rests on one property holding: **the engine must remain
+unable to run without the user's own generated data.** That breaks quietly — a
+handler with fallback text, a docstring quoting a section, a fixture asserting on
+prose. Across 171 handlers, discipline will not hold.
+
+So the guardrails are mechanical, not editorial:
+
+1. **The n-gram lint** (plan 09): every 8-word sequence in a tracked text file is
+   checked against `sections.json`; none may appear. Allow-list the functional
+   anchors in `procedures.json` and the `find` phrases in `creatures.json` —
+   short locator strings, de minimis, and the strongest fair-use posture there
+   is. This turns the boundary from a policy into a test.
+2. **Handlers carry no game text.** `ctx.read(sid)` only, never an inline string,
+   never a paraphrase in a docstring.
+3. **Update the LICENSE scope note.** It names `data/errata.json`; four files are
+   tracked today and `graph.json` makes five.
+
+Not legal advice. The realistic exposure is a DMCA notice, not litigation, and
+Reaper distributes the game free — no market to harm, no commercial motive to
+complain — while the repo already complies with their terms.
+
+**Q2 — Does the player still roll their own dice?** *Decided: yes, by default.*
+`ctx.die` asks the player. `--auto-dice` rolls instead and still journals the
+value, so an auto-dice game replays identically. Plan 09 needs it regardless.
+
+**Q3 — "Number of characters in your party" (r303, r319, r320).** *Decided:
+living men only, not mounts.* `state.men()` already computes this.
 
 **Q4 — Does `./play` survive?** Plan 10 assumes the new UI becomes the default and
 `narrator.py` is retired or reduced to the narration layer. Nothing before plan 10
