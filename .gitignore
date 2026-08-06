@@ -3,13 +3,15 @@
 pdfs/
 data/*.json
 data/map-data.csv
-# errata.json, procedures.json, creatures.json and map-fixes.json are hand-written
-# commentary, sequencing, band sizes and corrections, not extracted content, so
-# they are tracked.
+# errata.json, procedures.json, creatures.json, map-fixes.json and graph.json are
+# hand-written commentary, sequencing, band sizes, corrections and branch
+# structure, not extracted content, so they are tracked. None of them restates
+# the booklets' text and none is usable without the generated files above.
 !data/errata.json
 !data/procedures.json
 !data/creatures.json
 !data/map-fixes.json
+!data/graph.json
 
 # Generated speech
 audio/

@@ -39,7 +39,7 @@ class Frame:
     """One running handler. `retry_to` is what a Retry unwinds to - the option
     list a failed hide returns the player to. Plan 02 fills it in."""
 
-    __slots__ = ("sid", "gen", "ctx", "mod", "params", "retry_to")
+    __slots__ = ("sid", "gen", "ctx", "mod", "params", "retry_to", "spent")
 
     def __init__(self, sid, gen, ctx, mod, params):
         self.sid = sid
@@ -48,6 +48,10 @@ class Frame:
         self.mod = mod
         self.params = params
         self.retry_to = None
+        # A frame whose handler has returned but which is kept on the stack so
+        # a Retry can come back to it. Its generator is finished; only its sid,
+        # params and retry_to are still wanted.
+        self.spent = False
 
     def __repr__(self):
         return f"<Frame {self.sid}>"
@@ -79,14 +83,22 @@ def restore(g: dict, snap: dict) -> None:
 
 
 class Machine:
-    def __init__(self, g: dict, book):
+    def __init__(self, g: dict, book, autosave: bool = True):
         self.g = g
         self.book = book
+        # The path explorer in tests/test_graph.py runs tens of thousands of
+        # short games; writing a save file for each would make an exhaustive
+        # sweep too slow to keep in the fast suite.
+        self.autosave = autosave
         self.out: list[Event] = []
         self.stack: list[Frame] = []
         self.ask: Ask | None = None
         self.result: Outcome | None = None
         self.replaying = False
+        # Every section entered, in order. The graph has real cycles in it
+        # (r337 -> r342 -> r337), so a caller that walks paths needs to see a
+        # repeat coming rather than follow it forever.
+        self.trace: list[str] = []
         eng = g.setdefault("engine", {})
         eng.setdefault("journal", [])
         eng.setdefault("cursor", None)
@@ -127,6 +139,7 @@ class Machine:
         self.stack = []
         self.result = None
         self.ask = None
+        self.trace = []
 
         self._push(cur["flow"], params=cur.get("params") or {})
         self.replaying = True
@@ -188,7 +201,8 @@ class Machine:
         self.persist()
 
     def persist(self) -> None:
-        state.write_game(self.g)
+        if self.autosave:
+            state.write_game(self.g)
 
     def current(self) -> Turn:
         """Where things stand, without advancing anything."""
@@ -204,12 +218,15 @@ class Machine:
         fn = sections.handler(sid)
         ctx = Ctx(self.g, self.book, self.out, sid=sid, mod=mod, params=params)
         gen = fn(ctx)
+        frame = Frame(sid, gen, ctx, mod, params)
+        ctx.frame = frame          # so ctx.offer can mark it retry-able
+        self.trace.append(sid)
         if not hasattr(gen, "send"):
             raise RuntimeError(
                 f"the handler for {sid} ({fn.__name__}) is not a generator. A "
                 f"rule handler must `yield` its questions, even if it asks none - "
                 f"add `if False: yield` or make it ask something.")
-        self.stack.append(Frame(sid, gen, ctx, mod, params))
+        self.stack.append(frame)
 
     def _segment(self, send):
         """One drive during replay, discarding whatever the last one emitted."""
@@ -258,9 +275,12 @@ class Machine:
                 f"combat, end_game.")
 
         if isinstance(out, Goto):
-            # A tail call: this handler is finished, the next one takes its
-            # place, and whoever invoked this frame still waits underneath.
-            self.stack.pop()
+            # A tail call: this handler is finished and the next takes its
+            # place. A frame that offered options is kept anyway, marked spent,
+            # so a failed hide four sections later can come back to it.
+            frame.spent = True
+            if frame.retry_to is None:
+                self.stack.pop()
             self._push(out.sid, out.params, mod=out.mod)
             return None
 
@@ -268,8 +288,12 @@ class Machine:
             self._retry(out)
             return None
 
-        # Terminal for this frame: hand the outcome back to its invoker.
+        # Terminal for this frame: hand the outcome back to its invoker, popping
+        # through any spent frames on the way - their handlers have returned and
+        # cannot be sent anything.
         self.stack.pop()
+        while self.stack and self.stack[-1].spent:
+            self.stack.pop()
         if not self.stack:
             self.result = out
             return None
@@ -278,7 +302,8 @@ class Machine:
     def _retry(self, out: Retry) -> None:
         """r314/r315/r317-r320: back to the caller's options, minus the one just
         tried. The failing handler's generator is finished, so the frame it
-        returns to is re-entered rather than resumed."""
+        returns to is re-entered rather than resumed - which is why the option
+        frame records enough to start again (the row, and what has been used)."""
         self.stack.pop()
         while self.stack and self.stack[-1].retry_to is None:
             self.stack.pop()
@@ -286,6 +311,13 @@ class Machine:
             raise Refuse(
                 f"a section asked to return to the previous option list "
                 f"({out.why or 'the attempt failed'}), but nothing on the way "
-                f"here offered one. Option-list frames arrive with the encounter "
-                f"graph (plan 02); until then, rule this one by hand.")
-        raise Refuse("re-entering an option frame is plan 02's work")
+                f"here offered one. Rule this one by hand.")
+        frame = self.stack.pop()
+        offered = dict(frame.retry_to)
+        used = list(offered.get("used") or [])
+        chosen = offered.get("chosen")
+        if chosen and chosen not in used:
+            used.append(chosen)
+        params = dict(frame.params)
+        params["_retry"] = {"row": offered["row"], "used": used}
+        self._push(frame.sid, params, mod=frame.mod)

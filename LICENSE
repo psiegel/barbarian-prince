@@ -25,7 +25,12 @@ SOFTWARE.
 NOTE ON SCOPE
 
 This licence covers only the code and documentation in this repository: the
-extraction and lookup tools, the CLI, and the notes in data/errata.json.
+extraction and lookup tools, the CLI, the game engine, and the five hand-written
+data files that are tracked here -- data/errata.json, data/procedures.json,
+data/creatures.json, data/map-fixes.json and data/graph.json. Those five record
+corrections, sequencing, band sizes and branch structure. They restate none of
+the booklets' text and none of them is usable without the generated data, which
+is not distributed here.
 
 It does NOT cover the game *Barbarian Prince*, which is copyright (c) 1981
 Heritage USA and remains the sole copyright of Reaper Miniatures. No part of

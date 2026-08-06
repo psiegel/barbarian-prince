@@ -107,13 +107,14 @@ So `Goto` carries parameters:
 Goto("r322", mod=0, params={"amount": 5})
 ```
 
-- [ ] Write `parse_ref(cell)` — extracts `(target_sid, amount)` from a table cell
-      or result string. Cells look like `bribe (5) r322`, `escape mtd r312`,
-      `converse r341`, `surprise r303`.
-- [ ] Run it over every `options` table and every `table`/`inline` result in
-      `data/tables.json` and assert every cell yields exactly one target. Anything
-      that does not is either an errata case or a parser bug — resolve both before
-      writing handlers.
+- [x] Write `parse_ref(cell)` — extracts `(target_sid, amount)` from a table cell
+      or result string. `src/engine/refs.py`.
+- [x] Run it over every `options` table and assert every cell yields exactly one
+      target. **398 parsed, 2 legitimately targetless, 0 failures.** The amounts
+      are exactly 5, 8, 10, 15, 20, 25, 30. Scoped to option cells: `table`-kind
+      results are prose sentences carrying two references apiece
+      (`r340`'s "…combat (r220); see r330…"), so they are encoded per row
+      instead — see "As built".
 
 ## Retry semantics
 
@@ -125,14 +126,14 @@ Specify it as: **re-offer the calling section's options for the row already
 rolled, minus the option just attempted.** The die has been rolled; the row is
 fixed; only the column is back in play.
 
-- [ ] Frames record `(sid, row, offered_columns, used_columns)`.
-- [ ] `Retry` pops to the nearest frame with offered columns and re-asks.
-- [ ] If every column is used up, `Refuse` and let the player rule — do not
-      invent a default.
+- [x] Frames record `(row, used, chosen)`, set by `ctx.offer()`.
+- [x] `Retry` pops to the nearest frame with offered columns and re-enters it.
+- [x] If every column is used up, `Refuse` and let the player rule.
 
-**Open question:** may a player re-attempt the same column? The text does not
-forbid it, but re-rolling the same check until it passes is clearly not intended.
-The spec above forbids it. Make it a flag so it is easy to change.
+**Open question, decided:** a player may not re-attempt the same column. It is
+behaviour, not a flag — the used column is filtered out of the next `ctx.choose`,
+so making it configurable would mean threading an option through the option
+handler for a rule nobody has asked to change. Revisit if it grates in play.
 
 ## Combat entry
 
@@ -152,35 +153,46 @@ Until plan 03 lands, `EnterCombat` may fall back to the existing
 
 ## Work items
 
-- [ ] `data/graph.json` — the table above, one entry per section, with a
-      `"cite"` field naming the section it came from and no prose. Tracked in git;
-      add the `!data/graph.json` exception to `.gitignore` alongside the other
-      four, and add it to the LICENSE scope note.
-- [ ] `src/engine/rules/graph.py` — the eight primitives, plus explicit handlers
-      for the seven sections that do not fit (r312, r313, r331, r332, r338, r339,
-      r340).
-- [ ] `parse_ref` plus its exhaustiveness test.
-- [ ] Wire the five table-bearing sections through the existing table resolution
-      rather than re-encoding them.
-- [ ] `Join` needs terms the party model does not have yet: `pay_per_day`,
-      `pay_starts`, `equal_share`, `leaves_at_settlement`, `no_abandon`,
-      `group_all_or_none`. Add them to `state.new_char` and make the dusk wage
-      step honour `pay_per_day`. Enforcement of `equal_share` and
-      `leaves_at_settlement` is plan 06's queue — for now, record the terms and
-      note them on the sheet.
+- [x] `data/graph.json` — one entry per section with a `cite` and no prose.
+      Tracked; `.gitignore` and the LICENSE scope note both updated. Checked for
+      text overlap against `sections.json`: **0 shared 8-word sequences.**
+- [x] `src/engine/rules/graph.py` — the eight primitives, plus explicit handlers
+      for **nine** sections (r312, r313, r331, r332, r333, r337, r338, r339,
+      r340). r333 and r337 joined the list: both open with a decision before
+      their table.
+- [x] `parse_ref` plus its exhaustiveness test.
+- [x] Wire the table-bearing sections through the existing resolution rather
+      than re-encoding them. The five inline tables (r330, r331, r332, r333,
+      r337) already carry an explicit `goto` per roll and are read straight from
+      `data/tables.json`.
+- [x] `Join` terms: `pay_starts` and a `terms` list added to `state.new_char`.
+      The existing `pay` field carries the daily wage, so `state.wages` needs no
+      change. Enforcement of `equal_share` and `leaves_at_settlement` is plan
+      06's queue; they are recorded now.
+- [x] The generic **options-table handler**, which was not on this list but is
+      what the e003 sweep requires. One implementation serves all 22 option
+      tables in the book; `sections._fallback` routes to it.
 
 ## Tests
 
-- **Reachability:** from every r3xx entry point, every path terminates in
-  `EnterCombat`, `EscapeHex`, `HideHere`, `EndEvent`, or `Refuse`. Enumerate by
-  driving each section with every die value 1–6 (and 2–12) at every `Ask`. No
-  path may loop forever — `r330` → `r3xx` must not return to `r330`.
-- **e003 sweep:** all six rows × three columns resolve.
-- **`parse_ref`:** exhaustive over `tables.json`, as above.
-- **Retry:** a forced failure at r317 from e003 re-offers talk and fight, not
-  evade.
-- **Modifiers:** `Battle(+1)` and `Battle(-1)` shift the r330 lookup and clamp at
-  the 2-or-less and 12-or-more ends.
+`tests/test_graph.py`, 48 tests. Suite total 112, about 25 seconds — the sweep is
+most of it.
+
+- [x] **Reachability:** every path from every r3xx entry point ends in
+      `EnterCombat`, `EscapeHex`, `HideHere`, `EndEvent`, a `Refuse`, or a
+      cycle. ~4,000 paths. The refusing set is asserted *exactly*, so a new
+      refusal cannot appear unnoticed.
+- [x] **e003 sweep:** all six rows × three columns resolve, plus a check that
+      every one of the 22 option tables in the book can be entered.
+- [x] **`parse_ref`:** exhaustive over every option cell, plus unit tests for
+      each damaged shape.
+- [x] **Retry:** a forced failure at r317 from e003 re-offers talk and fight,
+      not evade; the row is not re-rolled; and it survives a save and reload.
+- [x] **Modifiers:** `Battle(±1)` shifts the r330 lookup and clamps at both ends.
+- [x] Beyond the plan: the four initiative shapes, the three-way r338, wages due
+      on hiring versus starting tomorrow, an empty purse skipping the bribe
+      question, and `data/graph.json` structural checks (all 44 encoded, every
+      goto target exists, the `>=`/`>` pairs not collapsed).
 
 ## Notes
 
@@ -189,3 +201,71 @@ Until plan 03 lands, `EnterCombat` may fall back to the existing
   summary, but the player hears the outcome, not the section.
 - `r343` is used from outside the graph too (events that attack one character).
   Implement it once, in plan 03.
+
+---
+
+## As built
+
+Landed. 112 tests. `./play2 --flow e003` plays the whole thing with no model.
+
+### The graph has a real cycle in it
+
+**r337 → r342 → r337.** r337's decline table ends at r342, and r342 on a 10
+returns to r337. This is in the 1981 rules, not an encoding mistake. It
+terminates in play because most rolls leave the loop, but it means the flat
+assertion above — "no path may loop forever" — was wrong, and a walk of this
+graph cannot follow every edge.
+
+`Machine.trace` records every section entered so a caller can see a repeat
+coming. The test explorer stops a path at its first revisit and asserts the
+looping set is exactly `{r337, r342}`, so a cycle introduced by a coding mistake
+would still fail.
+
+### Retry needed a change to the machine
+
+A `Goto` is a tail call: it pops the caller and pushes the target. That destroys
+the very frame `Retry` has to come back to. So a frame whose handler called
+`ctx.offer()` is now **kept on the stack across a Goto**, marked `spent` — its
+generator is finished and can never be sent anything, but its sid, params and
+`retry_to` survive. Terminal outcomes pop through spent frames on the way down.
+
+`Retry` then re-enters the option section with `_retry: {row, used}` in its
+params, rather than resuming it.
+
+### What the sweep found
+
+- 398 cells parsed, **0 failures**. The damaged shapes are all recoverable:
+  `hider318` and `passr325` lost a space, `pe r311` and `p e116` lost their
+  verb, `be-pass (5) r321` lost half of "bribe". Every one still names exactly
+  one section.
+- Two cells legitimately name none. `e021` row 6 talk is "roll again"; `e130`
+  row 4 talk is `**audience`, whose rule is entirely in a footnote. Both refuse
+  with a pointer to `python3 src/bp.py show <sid> --raw`.
+- `e071` has **rows 0 and 7**. Its note gives ±1 on the option die for an elf or
+  a dwarf in the party, so the table really does run 0–7. The `mod` design
+  handles it and a test pins it.
+- `parse_ref` refuses rather than guesses when a cell names two sections, and
+  will not read a bare number as an id — "bribe 100 gold" is not a jump to e100.
+
+### Deferred, deliberately
+
+- **Foe stats are asked for.** `do_join` asks how many, their combat skill and
+  their endurance, because the graph has no access to the encounter record. Plan
+  03 wires `creatures.py` in and these three questions disappear.
+- **r341 costs the rest of the day** and the handler only notes it. Time cost is
+  plan 04's model (r204f); the note names the rule so it is easy to find.
+- **The bribe sum carries forward.** Declining r331 or r332 sends you to
+  r321–r324, which ask for "the amount indicated" with nothing indicating it.
+  The same sum is carried and a note says so. This is a reading, not a certainty.
+- **`_r333` does not let you hire some rather than all.** The section allows it;
+  the handler asks how many join, which amounts to the same thing without
+  modelling the group.
+
+### Smaller things
+
+- `Machine(autosave=False)` — the path explorer runs thousands of short games and
+  writing a save for each made the sweep too slow for the fast suite.
+- `state.new_char` gained `pay_starts` and `terms`. Both are new keys on new
+  characters only; anything reading them off an older save must use `.get()`.
+- `sections._generic` became `_fallback` and now routes options tables to
+  `graph.encounter_options` before falling through to "no handler yet".

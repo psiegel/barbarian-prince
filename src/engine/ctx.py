@@ -28,6 +28,20 @@ class Ctx:
         self.sid = sid         # the section this handler is running as
         self.mod = mod         # a die modifier the calling section supplied
         self.params = params or {}
+        self.frame = None      # set by the machine; only ctx.offer touches it
+
+    def offer(self, row, used, chosen) -> None:
+        """Mark this section as somewhere a Retry can return to.
+
+        r314, r315 and r317-r320 send the player back to the previous option
+        list when the attempt fails. The die has already been rolled, so the row
+        is fixed and only the column is back in play - which is what this
+        records.
+        """
+        if self.frame is None:
+            raise Refuse("ctx.offer needs a frame; it is only callable from a "
+                         "running handler")
+        self.frame.retry_to = {"row": row, "used": list(used), "chosen": chosen}
 
     def param(self, name: str, default=None):
         """What the calling section supplied - a bribe amount, a hire rate.

@@ -211,6 +211,11 @@ def new_char(name: str, kind: str = "follower") -> dict:
         "pay": 0,
         "guide": False,
         "winged": False,
+        # r331-r340 hire on stated terms: when the daily wage starts, and the
+        # conditions they leave under. Recorded here; enforced by plan 06's
+        # queue, which is where "leaves at the next town" has to live.
+        "pay_starts": None,
+        "terms": [],
         "note": "",
     }
 

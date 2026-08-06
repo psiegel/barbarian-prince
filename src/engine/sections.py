@@ -34,27 +34,31 @@ def registered(sid: str) -> bool:
 
 
 def handler(sid: str):
-    """The handler for a section, or the generic reader."""
+    """The handler for a section, or the fallback."""
     key = sid.strip().lower()
     fn = REGISTRY.get(key)
     if fn is not None:
         return fn
-    return _generic
+    return _fallback
 
 
-def _generic(ctx):
-    """Read the section out and stop.
+def _fallback(ctx):
+    """A section with no handler of its own.
 
-    Table resolution lands in plan 02 and the prose sections in plan 07. Until
-    then this is honest rather than clever: the player hears the section and the
-    engine says plainly that it cannot take it further, instead of inventing an
+    An options table is the three-column shape most encounters open with, and
+    one implementation serves all twenty-two of them. Anything else is read out
+    and then says plainly which plan owes it a handler, rather than inventing an
     outcome to paper over the gap (D5).
     """
-    ctx.read(ctx.sid)
     table = ctx.book.table(ctx.sid)
+    if table is not None and table.get("kind") == "options":
+        from .rules.graph import encounter_options
+        return (yield from encounter_options(ctx))
+
+    ctx.read(ctx.sid)
     if table is not None:
         ctx.note(f"{ctx.sid} has a {table.get('kind')} table that no handler "
-                 f"resolves yet (plan 02).", cite=ctx.sid)
+                 f"resolves yet (plan 07).", cite=ctx.sid)
     else:
         ctx.note(f"{ctx.sid} has no handler yet (plan 07).", cite=ctx.sid)
     return EndEvent()

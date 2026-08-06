@@ -1,0 +1,171 @@
+{
+  "_readme": [
+    "The branch structure of the encounter-resolution graph, r300-r343.",
+    "",
+    "Hand-written and tracked, like errata.json, procedures.json and",
+    "creatures.json: this records the *shape* of each section - which stat is",
+    "checked, against which comparison, and which of the eight primitives each",
+    "branch lands on. It restates none of the booklet's text, and it is useless",
+    "without data/sections.json beside it, which is generated and not tracked.",
+    "See docs/plans/00-overview.md open question Q1.",
+    "",
+    "Sections whose outcomes were extracted into data/tables.json are marked",
+    "shape 'inline_table' and read from there rather than repeated here.",
+    "Sections that need real logic are marked shape 'handler' and live in",
+    "src/engine/rules/graph.py.",
+    "",
+    "  shape check       1d6 against a party stat; branches to pass/fail",
+    "  shape bribe       pay the amount the calling section supplied, or fail",
+    "  shape fight/escape/hide/pass    a terminal, no roll",
+    "  shape inline_table  resolve via data/tables.json (it carries the gotos)",
+    "  shape outcome_table a die table whose rows carry more than a target",
+    "  shape handler     explicit Python",
+    "",
+    "  stat  wits | party_size      party_size is living men, not mounts",
+    "  op    ge | gt | lt | le      wits ge means wit & wiles >= the die",
+    "",
+    "  do    fight | escape | hide | pass | battle | retry | goto | join",
+    "",
+    "initiative maps to a combat setup: 'us'/'them' say who strikes first, and",
+    "surprise names the side granted the free bonus strike (r220d)."
+  ],
+
+  "sections": {
+    "r300": {"cite": "r300", "shape": "fight", "initiative": "us", "surprise": "us"},
+
+    "r301": {"cite": "r301", "shape": "check", "stat": "wits", "op": "ge",
+             "pass": {"do": "fight", "initiative": "us", "surprise": "us"},
+             "fail": {"do": "fight", "initiative": "us"}},
+    "r302": {"cite": "r302", "shape": "check", "stat": "wits", "op": "gt",
+             "pass": {"do": "fight", "initiative": "us", "surprise": "us"},
+             "fail": {"do": "fight", "initiative": "us"}},
+    "r303": {"cite": "r303", "shape": "check", "stat": "party_size", "op": "lt",
+             "pass": {"do": "fight", "initiative": "us", "surprise": "us"},
+             "fail": {"do": "fight", "initiative": "us"}},
+
+    "r304": {"cite": "r304", "shape": "fight", "initiative": "us"},
+
+    "r305": {"cite": "r305", "shape": "check", "stat": "wits", "op": "ge",
+             "pass": {"do": "fight", "initiative": "us"},
+             "fail": {"do": "fight", "initiative": "them"}},
+    "r306": {"cite": "r306", "shape": "check", "stat": "wits", "op": "gt",
+             "pass": {"do": "fight", "initiative": "us"},
+             "fail": {"do": "fight", "initiative": "them"}},
+
+    "r307": {"cite": "r307", "shape": "fight", "initiative": "them"},
+
+    "r308": {"cite": "r308", "shape": "check", "stat": "wits", "op": "ge",
+             "pass": {"do": "fight", "initiative": "them"},
+             "fail": {"do": "fight", "initiative": "them", "surprise": "them"}},
+    "r309": {"cite": "r309", "shape": "check", "stat": "wits", "op": "gt",
+             "pass": {"do": "fight", "initiative": "them"},
+             "fail": {"do": "fight", "initiative": "them", "surprise": "them"}},
+
+    "r310": {"cite": "r310", "shape": "fight", "initiative": "them", "surprise": "them"},
+
+    "r311": {"cite": "r311", "shape": "escape"},
+    "r312": {"cite": "r312", "shape": "handler", "requires": "all_mounted"},
+    "r313": {"cite": "r313", "shape": "handler", "requires": "all_flying"},
+    "r314": {"cite": "r314", "shape": "check", "stat": "wits", "op": "ge",
+             "pass": {"do": "escape"}, "fail": {"do": "retry"}},
+    "r315": {"cite": "r315", "shape": "check", "stat": "wits", "op": "gt",
+             "pass": {"do": "escape"}, "fail": {"do": "retry"}},
+
+    "r316": {"cite": "r316", "shape": "hide"},
+    "r317": {"cite": "r317", "shape": "check", "stat": "wits", "op": "ge",
+             "pass": {"do": "hide"}, "fail": {"do": "retry"}},
+    "r318": {"cite": "r318", "shape": "check", "stat": "wits", "op": "gt",
+             "pass": {"do": "hide"}, "fail": {"do": "retry"}},
+    "r319": {"cite": "r319", "shape": "check", "stat": "party_size", "op": "le",
+             "pass": {"do": "hide"}, "fail": {"do": "retry"}},
+    "r320": {"cite": "r320", "shape": "check", "stat": "party_size", "op": "lt",
+             "pass": {"do": "hide"}, "fail": {"do": "retry"}},
+
+    "r321": {"cite": "r321", "shape": "bribe",
+             "pass": {"do": "pass"}, "fail": {"do": "battle", "mod": 1}},
+    "r322": {"cite": "r322", "shape": "bribe",
+             "pass": {"do": "pass"}, "fail": {"do": "battle", "mod": 0}},
+    "r323": {"cite": "r323", "shape": "bribe",
+             "pass": {"do": "pass"}, "fail": {"do": "battle", "mod": -1}},
+    "r324": {"cite": "r324", "shape": "bribe",
+             "pass": {"do": "pass"}, "fail": {"do": "fight", "initiative": "them"}},
+
+    "r325": {"cite": "r325", "shape": "pass"},
+    "r326": {"cite": "r326", "shape": "check", "stat": "wits", "op": "ge",
+             "pass": {"do": "pass"}, "fail": {"do": "battle", "mod": 1}},
+    "r327": {"cite": "r327", "shape": "check", "stat": "wits", "op": "ge",
+             "pass": {"do": "pass"}, "fail": {"do": "battle", "mod": 0}},
+    "r328": {"cite": "r328", "shape": "check", "stat": "wits", "op": "gt",
+             "pass": {"do": "pass"}, "fail": {"do": "battle", "mod": 0}},
+    "r329": {"cite": "r329", "shape": "check", "stat": "wits", "op": "gt",
+             "pass": {"do": "pass"}, "fail": {"do": "battle", "mod": -1}},
+
+    "r330": {"cite": "r330", "shape": "inline_table", "consumes_mod": true},
+
+    "r331": {"cite": "r331", "shape": "handler", "decline_table": "r331",
+             "join": {"pay": 0, "terms": ["equal_share", "no_abandon"]}},
+    "r332": {"cite": "r332", "shape": "handler", "decline_table": "r332",
+             "join": {"pay": 2, "pay_starts": "tomorrow",
+                      "terms": ["group_all_or_none"]}},
+    "r333": {"cite": "r333", "shape": "handler", "decline_table": "r333",
+             "join": {"pay": 2, "pay_starts": "today", "terms": ["some_or_all"]}},
+
+    "r334": {"cite": "r334", "shape": "join", "join": {"pay": 0, "terms": []}},
+    "r335": {"cite": "r335", "shape": "join",
+             "join": {"pay": 0, "terms": ["leaves_at_settlement"]}},
+
+    "r336": {"cite": "r336", "shape": "check", "stat": "wits", "op": "ge",
+             "pass": {"do": "join", "join": {"pay": 0, "terms": []}},
+             "fail": {"do": "pass"}},
+
+    "r337": {"cite": "r337", "shape": "handler", "decline_table": "r337",
+             "join": {"pay": 0, "terms": []}},
+
+    "r338": {"cite": "r338", "shape": "handler",
+             "join_gt": {"pay": 1, "pay_starts": "today", "terms": ["some_or_all"]},
+             "join_eq": {"pay": 2, "pay_starts": "today", "terms": ["some_or_all"]}},
+
+    "r339": {"cite": "r339", "shape": "handler",
+             "join": {"pay": 2, "pay_starts": "today", "terms": ["some_or_all"]},
+             "decline": {"die": "1d6", "rows": {
+               "1,2,3": {"do": "pass"},
+               "4,5,6": {"do": "battle", "mod": 0}}}},
+
+    "r340": {"cite": "r340", "shape": "handler",
+             "join": {"pay": 0, "terms": ["equal_share"]},
+             "hostile": {"die": "1d6", "rows": {
+               "1,2": {"do": "fight", "initiative": "them", "target": "player"},
+               "3,4": {"do": "battle", "mod": 0},
+               "5,6": {"do": "pass"}}}},
+
+    "r341": {"cite": "r341", "shape": "outcome_table", "die": "2d6", "rows": {
+      "2":  {"do": "fight", "initiative": "them", "surprise": "them",
+             "target": "player"},
+      "3":  {"do": "goto", "sid": "r308"},
+      "4":  {"do": "goto", "sid": "r305"},
+      "5":  {"do": "goto", "sid": "r331", "amount": 10,
+             "terms": ["leaves_at_settlement"]},
+      "6":  {"do": "goto", "sid": "r332", "amount": 5},
+      "7":  {"do": "goto", "sid": "r333"},
+      "8":  {"do": "goto", "sid": "r338"},
+      "9":  {"do": "goto", "sid": "r335"},
+      "10": {"do": "goto", "sid": "r336"},
+      "11": {"do": "goto", "sid": "r340"},
+      "12": {"do": "goto", "sid": "r334"}}},
+
+    "r342": {"cite": "r342", "shape": "outcome_table", "die": "2d6", "rows": {
+      "2":  {"do": "goto", "sid": "r309"},
+      "3":  {"do": "battle", "mod": 0},
+      "4":  {"do": "goto", "sid": "r340"},
+      "5":  {"do": "goto", "sid": "r306"},
+      "6":  {"do": "pass"},
+      "7":  {"do": "choose", "options": [
+               {"label": "talk further", "do": "goto", "sid": "r341"},
+               {"label": "let them pass", "do": "pass"}]},
+      "8":  {"do": "goto", "sid": "r333"},
+      "9":  {"do": "goto", "sid": "r339"},
+      "10": {"do": "goto", "sid": "r337"},
+      "11": {"do": "goto", "sid": "r338"},
+      "12": {"do": "goto", "sid": "r336"}}}
+  }
+}
