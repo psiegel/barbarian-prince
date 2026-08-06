@@ -171,20 +171,24 @@ the value, so an auto-dice game replays identically.
 
 ## Work items
 
-- [ ] `src/engine/types.py` — `Event`, `Ask`, the `Outcome` verbs.
-- [ ] `src/engine/ctx.py` — `Ctx` over a `state.py` save dict. Mutators log via
-      `state.note` and emit a `state` Event.
-- [ ] `src/engine/machine.py` — generator stack, `resume`/`answer`, journal
-      append, replay with events suppressed, commit, undo, fingerprint check.
-- [ ] `src/engine/sections.py` — `@section("r317")` decorator and registry;
-      `dispatch(sid)` falls back to a generic handler that reads the section and
-      resolves its table if `data/tables.json` has one, else `Refuse`.
-- [ ] `src/ui/parse.py` — the table above.
-- [ ] `src/ui/term.py` — the loop, meta-commands, `--auto-dice`.
-- [ ] `play2` — entry point: load or create a game, `Machine.resume()`, run.
-- [ ] Save-format migration: add `day_start`, `journal`, `cursor`,
-      `rules_fingerprint`; bump `version` to 2 and read v1 saves by synthesising
-      `day_start` from the current sheet with an empty journal.
+- [x] `src/engine/types.py` — `Event`, `Ask`, the `Outcome` verbs. Also `Invoke`
+      (deviation 1 below).
+- [x] `src/engine/ctx.py` — `Ctx` over a `state.py` save dict. Mutators log via
+      `state.note` and emit a `state` Event. (`eat` landed as `food_change`; the
+      r215 meal itself is plan 05.)
+- [x] `src/engine/machine.py` — generator stack, `resume`/`answer`, journal
+      append, replay, commit, undo, fingerprint check.
+- [x] `src/engine/sections.py` — `@section("r317")` decorator and registry;
+      `handler(sid)` falls back to a generic handler. **Partial by intent:** the
+      fallback reads the section and then says plainly that nothing resolves it
+      yet. Table resolution moved to plan 02, which owns the table-driven
+      sections anyway — see deviation 6.
+- [x] `src/ui/parse.py` — the table above.
+- [x] `src/ui/term.py` — the loop, meta-commands, `--auto-dice`.
+- [x] `play2` — entry point: load or create a game, `Machine.resume()`, run.
+      `--new` builds a bare save; real setup is plan 05's `new_game` flow.
+- [x] Save-format migration: `day_start`, `journal`, `cursor`, `fingerprint`
+      under `g["engine"]` (deviation 2); `version` 2, and a v1 save loads.
 
 ## Proving it
 
@@ -200,19 +204,39 @@ def demo(ctx):
     return ctx.end_event()
 ```
 
-- [ ] Drive it from the terminal.
-- [ ] Kill the process between the two asks; restart; land on the die question
+Built as `src/engine/rules/demo.py`, which asks one of each shape and invokes a
+sub-flow. Delete it when `day` is a real flow.
+
+- [x] Drive it from the terminal.
+- [x] Kill the process between the two asks; restart; land on the die question
       with the choice remembered.
-- [ ] Drive it headless from `["fight", 4]` and assert the resulting sheet.
-- [ ] `undo` after the die returns you to the die question.
+- [x] Drive it headless from a list of answers and assert the resulting sheet.
+- [x] `undo` after the die returns you to the die question.
 
 ## Tests
 
-- Round-trip: state + journal → replay → identical state (hash the sheet).
-- Replay emits no events.
-- Every `Ask.spec` shape has a parse test including the rejection cases.
-- A v1 save loads.
-- `BP_GAME` set for all of it; save deleted afterwards.
+64 tests: `python3 -m unittest discover -s tests -t tests`.
+
+- [x] Round-trip: state + journal → replay → identical state.
+      `test_resume_lands_on_the_same_question`, `test_replay_is_deterministic`.
+- [x] Replay emits only the events since the last answered question — *not* no
+      events at all, which would leave the player facing a question with no
+      context (deviation 4). `test_resume_shows_only_the_current_segment`.
+- [x] Every `Ask.spec` shape has a parse test including the rejection cases.
+      `tests/test_parse.py`, 21 tests.
+- [x] A v1 save loads. `test_a_version_1_save_loads`.
+- [x] `BP_GAME` set for all of it; save deleted afterwards.
+      `harness.temp_game`, asserted by `TestHygiene`.
+
+Beyond the plan:
+
+- [x] The handler contract fails loudly — yielding a non-`Ask`, returning a
+      non-verb, a non-generator handler, and a `goto` loop that never asks all
+      raise with a message naming the mistake. `TestHandlerContract`.
+- [x] Decision D2 enforced by an AST walk: no `random`, `time`, `datetime`,
+      `secrets`, `uuid` or `os.environ` anywhere under `engine/rules/`.
+      `tests/test_determinism.py`.
+- [x] `bp` still reads a save the engine has written. `TestInteroperability`.
 
 ## Notes
 
@@ -220,3 +244,60 @@ def demo(ctx):
   The old client must keep working while the new one is built beside it.
 - Resist putting rules in `ctx`. `ctx.all_mounted()` is a state query; "can this
   party escape mounted" is r312 and belongs in plan 02.
+
+---
+
+## As built
+
+Landed. `./play2`, 64 tests (`python3 -m unittest discover -s tests -t tests`).
+Six things came out differently from the sketch above; plan 02 inherits them.
+
+**1. A fourth concept: `Invoke`.** The sketch had only `Ask` yielded. But a day
+flow needs to run an event *and get its outcome back* — it must know whether a
+travel event cost the rest of the day (r204f). So a handler may yield `Invoke(sid)`
+to run a sub-flow and receive its `Outcome`:
+
+```python
+outcome = yield ctx.invoke("e003")
+```
+
+`Goto` remains the tail call — the caller is finished and does not resume.
+`Invoke` is the sub-call. The machine's stack holds both; `Goto` replaces the top
+frame, so whoever invoked it still waits underneath.
+
+**2. Save fields nest under `engine`.** `day_start`, `journal`, `cursor` and
+`fingerprint` live in `g["engine"]` rather than at the top level, which keeps
+`bp`'s view of the sheet unchanged. `snapshot()` excludes the block, `restore()`
+preserves it.
+
+**3. Parameters ride on `ctx`, not on the signature.** Handlers are always called
+as `fn(ctx)`. What the calling section supplied is `ctx.param("amount")` /
+`ctx.need("amount")`, with `ctx.sid` and `ctx.mod` alongside. This matters for
+plan 02, where bribe amounts come from the caller and most sections take none.
+
+**4. Replay keeps the last segment's events.** Suppressing *all* events during
+replay leaves the player staring at a question with no context. Each replayed
+answer clears the outbox first, so what survives is exactly the events since the
+last answered question — verified by `test_resume_shows_only_the_current_segment`.
+
+**5. `Retry` refuses, by design.** No frame sets `retry_to` yet, so a `Retry`
+raises a `Refuse` naming plan 02. `Frame.retry_to` and `Machine._retry` are in
+place for it.
+
+**6. The generic handler reads but does not resolve.** The sketch had it resolve
+a section's table when `tables.json` has one. It reads the section and then says
+which plan owns the gap — plan 02 for a tabled section, plan 07 for a prose one.
+Resolving a table means knowing what its cells *mean* (`bribe (5) r322` is a
+target plus a parameter), and that parsing is plan 02's first work item. Better a
+handler that says what it cannot do than one that half-does it.
+
+Also worth knowing:
+
+- `state.VERSION` is 2. The bump is additive — `migrate()` only stamps the
+  number, since a v1 save is a v2 save with no engine block yet.
+- An **empty journal refreshes `day_start`** on load. That is what makes using
+  `bp` on a save between days harmless: with nothing recorded since dawn,
+  whatever the sheet says now *is* dawn.
+- Meta-commands take a `/` prefix (`/sheet`, `/undo`, `/log`, `/quit`) so they
+  cannot collide with a choice label. `?` alone still works.
+- `src/engine/rules/demo.py` is scaffolding. Delete it when `day` is a real flow.

@@ -31,7 +31,11 @@ ROOT = Path(__file__).resolve().parent.parent
 SAVES = ROOT / "saves"
 CURRENT = SAVES / "current"
 
-VERSION = 1
+# 2 adds the engine block: the dawn snapshot and the day's journal that let a
+# game be resumed mid-encounter (docs/plans/01-engine-core.md). It is additive -
+# a version 1 save is a version 2 save with no engine block yet - so `migrate`
+# only has to stamp the number.
+VERSION = 2
 GAME_DAYS = 70          # e001: ten weeks. Day 71 is a loss.
 DAYS_PER_WEEK = 7
 
@@ -96,11 +100,18 @@ def load_game(args, required: bool = True) -> dict | None:
             return None
         known = ", ".join(sorted(p.stem for p in SAVES.glob("*.json"))) or "none"
         raise Refuse(f"no save at {path.relative_to(ROOT)}. Saves on disk: {known}")
-    g = json.loads(path.read_text())
-    if g.get("version") != VERSION:
-        raise Refuse(f"{path.name} is a version {g.get('version')} save; this bp "
-                     f"reads version {VERSION}")
-    return g
+    return migrate(json.loads(path.read_text()), path.name)
+
+
+def migrate(g: dict, where: str = "this save") -> dict:
+    """Bring an older save up to VERSION, or refuse if it cannot be."""
+    v = g.get("version")
+    if v == VERSION:
+        return g
+    if v == 1:
+        g["version"] = 2       # additive; the engine block is created on demand
+        return g
+    raise Refuse(f"{where} is a version {v} save; this bp reads version {VERSION}")
 
 
 def write_game(g: dict) -> None:

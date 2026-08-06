@@ -168,7 +168,7 @@ individual plans.
 
 | # | Plan | Depends on | Status |
 |---|---|---|---|
-| 01 | [Engine core](01-engine-core.md) — protocol, journal, replay, terminal UI | — | ☐ not started |
+| 01 | [Engine core](01-engine-core.md) — protocol, journal, replay, terminal UI | — | ☑ **done** — 64 tests, `./play2` |
 | 02 | [Encounter graph](02-encounter-graph.md) — r300–r343 | 01 | ☐ not started |
 | 03 | [Combat](03-combat.md) — r220, r343, r218 | 01, 02 | ☐ not started |
 | 04 | [Travel](04-travel.md) — r204, r205, r207 | 01, 02 | ☐ not started |
