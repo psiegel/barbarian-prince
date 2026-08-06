@@ -29,7 +29,7 @@
         "part": "setup",
         "what": "Arrested. Read this, then ask for 1d6 for the gravity of the offence.",
         "until": "5,6-see next paragraph (e060a).",
-        "then": "1 or less-e061; 2-e062; 3,4-e063; 5,6-read e060#minor. e060 has no parsed table, so resolve it by reading this line, not with `bp resolve`."
+        "then": "bp resolve e060 <die>. On 5,6 that is e060#minor. Some events send the reader here with a modifier - e065 subtracts one - so pass the modified number."
       },
       {
         "part": "minor",

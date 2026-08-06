@@ -158,9 +158,22 @@ def parse_options(lines: list[str]) -> dict | None:
     return None
 
 
-# A parenthesised compass list, "(1-N, 2-NE, 3-SE, 4-S, 5-SW, 6-NW)". These sit
-# inside the prose and must not be mistaken for the result list.
-DIRECTION_RE = re.compile(r"\((?:\s*\d\s*-\s*[NSEW]{1,2}\s*,?)+\)", re.IGNORECASE)
+# A compass list, "(1-N, 2-NE, 3-SE, 4-S, 5-SW, 6-NW)". These sit inside the
+# prose and must not be mistaken for the result list.
+#
+# The brackets are optional because e105a does without them - "instead of making
+# your normal travel move: 1-N, 2-NE, 3-SE, 4-S, 5-SW, 6-NW, and then roll one
+# die again" - and that list was being read as more rows of e105's table. Only
+# rolls 4 and 5 got in, the others colliding with rows already found, which left
+# e105 the one table in the game covering a die face twice.
+#
+# Three items are required before an unbracketed list counts. A real outcome can
+# be a bare compass point, and a run has to be long enough that six of them in a
+# row is a direction list rather than a table anyone would write.
+DIRECTION_RE = re.compile(
+    r"\(\s*(?:\d\s*-\s*[NSEW]{1,2}\s*,?\s*)+\)"
+    r"|(?:\d\s*-\s*[NSEW]{1,2}\s*,\s*){2,}\d\s*-\s*[NSEW]{1,2}",
+    re.IGNORECASE)
 # The clause that introduces a result list, up to its colon.
 INTRO_RE = re.compile(r"roll[^:;.]*?\bdi(?:e|ce)\b[^:\d]*:?", re.IGNORECASE)
 # One "key - outcome" item within a result list.
@@ -170,9 +183,20 @@ INTRO_RE = re.compile(r"roll[^:;.]*?\bdi(?:e|ce)\b[^:\d]*:?", re.IGNORECASE)
 # matched positionally instead - the key is greedy (taking "1,2" whole) and the
 # outcome runs until the next key or a semicolon. The leading lookbehind stops a
 # key being found inside a section id, where "e043, 4" would otherwise match.
+#
+# The sentence ends it too. Without that the run's last item has no next key and
+# no semicolon to stop at, so it ran to the end of the section and took the prose
+# after the table with it: e195's row 12 held the game's copyright credits, e068's
+# held the whole of e068a, r331's three sentences of aftermath - 8 of the 30
+# inline tables. A colon closes an item as surely as a full stop, because e068
+# writes "5,6-see e068a in the paragraph below:" and the passage follows it.
+#
+# Only the sentence break counts, not a bare '.', so "wealth 110 (see r225)" and
+# the like are untouched. Checked against every inline table: no item other than
+# the ones this repairs contains one.
 ITEM_RE = re.compile(
     rf"(?<![A-Za-z0-9])({KEY_BODY}{KEY_TAIL})\s*[-–]\s*"
-    rf"(.+?)(?=\s*;|\s*,\s*{KEY_BODY}\s*[-–]|\s*$)",
+    rf"(.+?)(?=\s*;|\s*,\s*{KEY_BODY}\s*[-–]|[.:](?:\s|$)|\s*$)",
     re.IGNORECASE,
 )
 

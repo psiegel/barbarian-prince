@@ -109,7 +109,11 @@ class Book:
         self.map = load("map.json", required=False)
 
     def table(self, sid: str) -> dict | None:
-        return self.tables.get(self.normalize(sid))
+        # A part is handed back carrying its parent's id with a #suffix ("e068#setup"),
+        # and the table it is a passage of is the parent's. The setup part is the
+        # half that holds the inline outcome run, so looking it up under the full
+        # id finds nothing and the run gets read out.
+        return self.tables.get(split_id(self.normalize(sid))[0])
 
     def normalize(self, sid: str) -> str:
         return sid.strip().lower()
@@ -188,7 +192,7 @@ class Book:
         not read differently from the same event reached through `bp show`.
         """
         sec, counts = creatures.apply(sec)
-        emit(sec, note, counts=counts)
+        emit(sec, note, counts=counts, table=self.table(sec["id"]))
 
     def incoming(self, sid: str) -> list[str]:
         sid = self.normalize(sid)
@@ -322,6 +326,108 @@ INLINE_OUTCOMES_RE = re.compile(
     # stays, or "then roll two dice." loses its full stop.
     rf"{OUTCOME_ITEM}(?:\s*[;,]\s*{OUTCOME_ITEM})*\s*[;,]?", re.I)
 
+# ...but that regex only knows three things that can sit right of the dash, and a
+# row written as free text - "1-wealth 25", "5,6-no additional event" - is none of
+# them. The run has to be contiguous to match, so an unrecognised row splits it and
+# only the recognised half comes out: e139 spoke "roll one die: 1-wealth 25;
+# 2-wealth 60;" and swallowed the four events after it, r331 read a resolution
+# branch aloud. Nine sections were leaking half a table this way.
+#
+# So the run is found from the parsed table instead. tables.json has already read
+# every row of these 30 sections, and the roll keys say where the run starts and
+# where each item gives way to the next - no guess at what an outcome looks like.
+#
+# What a row records is trusted only for its first word, never matched whole. The
+# recorded text is a cleaned-up reading, not a slice of the body: direction lists
+# are scrubbed out of it and whitespace is collapsed, so e026's row 6 is held as
+# "...roll one die to determine which direction" where the body writes "...which
+# direction (1-N, 2-NE, 3-SE, 4-S, 5-SW, 6-NW)". Matching it literally would find
+# nothing. The first word is also the whole of what tells a run from a lookalike:
+# e147 opens with a direction list whose items are contiguous and correctly
+# numbered for a 2d6 table, and row 2 reading "e066" rather than "NE" rejects it.
+#
+# So the run's end comes from the sentence rather than from the row: the last item
+# stops at the first terminator, which leaves "After you arrive there..." (e026)
+# and "If they are paid and do join..." (r331) standing as the prose they are.
+#
+# A colon ends a run as surely as a full stop does: e068's last row is "5,6-see
+# e068a in the paragraph below:", and stopping only at full stops carries the cut
+# on into e068a and eats the sentence that opens it.
+RUN_END_RE = re.compile(r"[.:](?=\s|$)")
+
+
+def roll_pattern(key: str) -> str:
+    """A table's roll key ("4,5", "12(or more)") as it is written in the prose.
+
+    Built a character at a time because the spacing is the table's, not the
+    book's: a key recorded as "1 (or less)" can be printed "1(or less)", and the
+    commas in "3,4" may or may not have space around them.
+    """
+    out = []
+    for ch in re.sub(r"\s+", " ", key.strip()):
+        if ch == " ":
+            out.append(r"\s*")
+        elif ch == ",":
+            out.append(r"\s*,\s*")
+        elif ch == "(":
+            out.append(r"\s*\(")
+        else:
+            out.append(re.escape(ch))
+    body = "".join(out)
+    return rf"(?<!\d){body}\s*[-–]\s*"
+
+
+def outcome_rows(table: dict | None) -> list[tuple[re.Pattern, str]]:
+    """Each row as (the label that introduces it, the first word of its text)."""
+    if not table or table.get("kind") != "inline":
+        return []
+    rows = []
+    for key, res in table["results"].items():
+        word = re.match(r"[\w']+", res["text"].strip())
+        if not word:
+            return []
+        rows.append((re.compile(roll_pattern(key), re.I), word.group(0)))
+    return rows if len(rows) > 1 else []
+
+
+def outcome_run(text: str, table: dict | None) -> tuple[int, int] | None:
+    """Where this paragraph's inline outcome run starts and ends, or None.
+
+    The span covers the terminator, and the caller puts a full stop back in its
+    place: what precedes a run is the instruction that introduces it, and "roll
+    one die" wants to end in a full stop whether the book wrote one there (e139)
+    or a colon (e068).
+    """
+    rows = outcome_rows(table)
+    if not rows:
+        return None
+    (first, first_word), rest = rows[0], rows[1:]
+
+    def at(pos: int, word: str) -> int | None:
+        m = re.compile(rf"\s*{re.escape(word)}\b", re.I).match(text, pos)
+        return m.end() if m else None
+
+    for start in first.finditer(text):
+        pos = at(start.end(), first_word)
+        if pos is None:
+            continue  # a lookalike - e147's "2-NE" is not row 2's "e066"
+        for label, word in rest:
+            stop = RUN_END_RE.search(text, pos)
+            stop = stop.start() if stop else len(text)
+            nxt = label.search(text, pos)
+            # A row that only turns up after the sentence has ended is not part of
+            # this run - the same number can appear again in the prose below it.
+            if not nxt or nxt.start() >= stop:
+                break
+            after = at(nxt.end(), word)
+            if after is None:
+                break
+            pos = after
+        end = RUN_END_RE.search(text, pos)
+        return start.start(), end.end() if end else len(text)
+    return None
+
+
 PROSE_SUBS = [
     # "add one (+1)" / "subtract three (-3)" - the parenthetical just restates
     # the word before it, so it reads as a stutter. Amounts like "bribe (15)"
@@ -397,7 +503,7 @@ def paragraphs(body: str) -> list[str]:
     return out
 
 
-def polish(text: str) -> str:
+def polish(text: str, table: dict | None = None) -> str:
     """One paragraph, said the way a person would say it.
 
     Whitespace is collapsed horizontally only: the paragraph breaks around this
@@ -410,6 +516,15 @@ def polish(text: str) -> str:
     # footnote (e007 has two) runs on after the first one's full stop.
     text = re.sub(r"^\*+\s*", "", text.lstrip())
     text = re.sub(r"(?<=[.:])\s*\*+\s*", " ", text)
+    # The table first, where there is one; the regex still runs behind it, for the
+    # two sections that write outcomes inline with no parsed table to read them
+    # from, and for any row the table-driven pass declined to claim.
+    span = outcome_run(text, table)
+    if span:
+        # The full stop stands in for the run's own terminator; the cleanup below
+        # then folds it into whatever introduced the run - "roll one die: ." and
+        # "roll one die. ." both come out as "roll one die."
+        text = text[:span[0]] + "." + text[span[1]:]
     text = INLINE_OUTCOMES_RE.sub("", text)
     for pat, rep in PROSE_SUBS:
         text = re.sub(pat, rep, text)
@@ -423,19 +538,21 @@ def polish(text: str) -> str:
     return text.strip()
 
 
-def prose_text(body: str, title: str = "") -> str:
+def prose_text(body: str, title: str = "", table: dict | None = None) -> str:
     # Each paragraph carries its own terminator, so nothing adds a stray period
     # after a line that already ends in a colon.
     chunks = ([title.rstrip(".") + "."] if title else []) + paragraphs(body)
-    said = [polish(c) for c in chunks if c.strip()]
+    said = [polish(c, table) for c in chunks if c.strip()]
     return "\n\n".join(
         c if c.endswith((".", ":", "!", "?")) else c + "." for c in said if c)
 
 
-def to_prose(sec: dict) -> str:
+def to_prose(sec: dict, table: dict | None = None) -> str:
     # A mid-section passage carries speech_title "" - it continues something the
     # player has already heard announced, so re-reading the title jars.
-    return prose_text(sec["body"], sec.get("speech_title", sec["title"]))
+    # A part keeps its parent's id, so it is handed the parent's table: the run is
+    # stripped if the slice contains it and nothing happens if it does not.
+    return prose_text(sec["body"], sec.get("speech_title", sec["title"]), table)
 
 
 def aside(sec: dict, note: str | None = None) -> str:
@@ -456,7 +573,7 @@ def aside(sec: dict, note: str | None = None) -> str:
 
 
 def emit(sec: dict, note: str | None = None, raw: bool = False,
-         counts: list[str] | None = None) -> None:
+         counts: list[str] | None = None, table: dict | None = None) -> None:
     """Print a section: prose to stdout, everything else to stderr."""
     # stdout is block-buffered when piped, so without this the referee's lines
     # jump ahead of the prose they belong to in a captured transcript.
@@ -466,7 +583,7 @@ def emit(sec: dict, note: str | None = None, raw: bool = False,
     else:
         print(aside(sec, note), file=sys.stderr)
         sys.stderr.flush()
-        print(to_prose(sec))
+        print(to_prose(sec, table))
         sys.stdout.flush()
     creatures.show_notes(counts or [], sys.stderr)
 
@@ -662,9 +779,46 @@ def cmd_show(book: Book, args) -> int:
             print(e, file=sys.stderr)
             rc = 1
             continue
+        base = sec["id"]
+        tail = None if split_id(raw)[1] or args.raw else withheld_tail(book, base)
+        if tail:
+            try:
+                sec = book.part(base, tail_setup(book, base))
+            except LookupError as e:
+                # The anchor no longer matches the extracted text. Saying so is
+                # the only safe move: the alternative is printing the whole
+                # section, which is the outcome this is here to withhold.
+                print(f"[warning] {e}\n[warning] refusing to print {base}: its "
+                      f"tail paragraph cannot be separated from the setup",
+                      file=sys.stderr)
+                rc = 1
+                continue
         sec, counts = creatures.apply(sec, no_counts=args.no_counts)
-        emit(sec, note, raw=args.raw, counts=counts)
+        emit(sec, note, raw=args.raw, counts=counts, table=book.table(sec["id"]))
+        if tail:
+            print(f"-> {tail['subid']} is this section's own tail paragraph, the "
+                  f"outcome of one die result. Read it only after the roll: "
+                  f"bp show {base}#{tail['part']}", file=sys.stderr)
     return rc
+
+
+def tail_setup(book: Book, sid: str) -> str:
+    """The passage read before the die - everything up to the tail paragraph."""
+    return book.parts(sid)[0]["part"]
+
+
+def withheld_tail(book: Book, sid: str) -> dict | None:
+    """The part of a section that must not be read until the die has been rolled.
+
+    e060, e068 and e105 each end in a lettered paragraph (e060a, e068a, e105a)
+    that only happens on some results. `options` already stops short of it, but
+    `show` was printing the whole body - handing over the outcome on the most
+    obvious command there is, which is the one thing splitting them was for.
+
+    A part carrying a subid is that shape and nothing else is: e001's three parts
+    and e002's one are pacing, not spoilers, and are still read whole.
+    """
+    return next((p for p in book.parts(sid) if p.get("subid")), None)
 
 
 def travel_row_hint(book: Book, q: str) -> str | None:
@@ -849,7 +1003,9 @@ def cmd_options(book: Book, args) -> int:
                                          no_counts=args.no_counts, partial=True)
     if not args.quiet:
         # The title is already on stderr, so the prose starts at the situation.
-        print(prose_text(intro))
+        # An inline table has no laid-out rows for intro_text to cut at, so the
+        # run is still in here and it is this table that takes it out.
+        print(prose_text(intro, table=table))
         print()
     creatures.show_notes(counts, sys.stderr)
 
@@ -944,6 +1100,17 @@ def cmd_resolve(book: Book, args) -> int:
         else:
             results, rolls = table["results"], table["rolls"]
         row = next((k for k, cov in rolls.items() if roll in cov), None)
+        if row is None and rolls:
+            # Modifiers push a roll past the printed range, and the table itself
+            # expects it: e065 sends the reader to e060 with a -1, which is what
+            # e060's "1 (or less)" row is for. Clamp to the end it fell off, the
+            # way the options branch above already does. Ordered by what each row
+            # covers rather than by its key, because "1 (or less)" is not an int.
+            lo = min(rolls, key=lambda k: min(rolls[k], default=99))
+            hi = max(rolls, key=lambda k: max(rolls[k], default=-1))
+            row = lo if roll < min(rolls[lo], default=99) else hi
+            print(f"(roll {roll} is outside the table; using row {row})",
+                  file=sys.stderr)
         if row is None:
             print(f"no row for a roll of {roll} in {sid}", file=sys.stderr)
             return 1
@@ -974,7 +1141,7 @@ def cmd_resolve(book: Book, args) -> int:
         return 0
     nxt, counts = creatures.apply(nxt)
     print()
-    emit(nxt, tnote, counts=counts)
+    emit(nxt, tnote, counts=counts, table=book.table(nxt["id"]))
     return 0
 
 

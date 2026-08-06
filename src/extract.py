@@ -66,6 +66,15 @@ def clean_body(lines: list[str]) -> str:
     text = re.sub(r"\bi(3\d{2})\b", r"r\1", text)
     # And a lowercase L for the 1 in a die-result key: "l-e034" is "1-e034".
     text = re.sub(r"(?<![A-Za-z0-9])l(\s*[-–]\s*[re]\d{3})", r"1\1", text)
+    # A space falls inside an id in two places: e060 writes "2-e06 2; 3,4-e06 3"
+    # and e065 "lodging r21 7". Every id in the book is three digits, so a letter
+    # followed by fewer than three of them and then the rest cannot be anything
+    # else - "e06 2" has no reading but e062. Left alone, e060 loses its table
+    # entirely (nothing matches "e06 2") and reads the broken ids out loud.
+    text = re.sub(
+        r"(?<![A-Za-z0-9])([re])(\d{1,2}) (\d{1,2})(?!\d)",
+        lambda m: m.group(0) if len(m.group(2) + m.group(3)) != 3
+        else f"{m.group(1)}{m.group(2)}{m.group(3)}", text)
     return text.strip()
 
 
