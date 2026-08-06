@@ -555,7 +555,26 @@ def to_prose(sec: dict, table: dict | None = None) -> str:
     return prose_text(sec["body"], sec.get("speech_title", sec["title"]), table)
 
 
-def aside(sec: dict, note: str | None = None) -> str:
+def how_to_roll(sec: dict, table: dict | None) -> str | None:
+    """The command that turns this section's die table into an outcome.
+
+    The prose says "roll one die" and the refs line lists where the section can
+    lead, but nothing said how to get from one to the other, so a narrator that
+    landed on e139 had to guess the command - and guessed `bp treasure e139`.
+    The refs line is no substitute: e139 has six outcomes and only four are
+    sections, so the two that pay wealth are not on it at all.
+    """
+    if not table:
+        return None
+    sid = split_id(sec["id"])[0]  # a part is rolled under its parent's id
+    if table["kind"] == "inline":
+        return f"-> roll {table['die']}, then: bp resolve {sid} <die>"
+    # The other two kinds are read by column or by sub-table, and the caller has
+    # to see the names before it can pick one.
+    return f"-> this section is resolved by a choice and a die: bp options {sid}"
+
+
+def aside(sec: dict, note: str | None = None, table: dict | None = None) -> str:
     """The referee's half: which section this is, and where it leads."""
     head = f"{sec['id']} {sec['title']}"
     if sec.get("part"):
@@ -567,8 +586,15 @@ def aside(sec: dict, note: str | None = None) -> str:
         out.append(f"({sec['what']})")
     if sec.get("refs"):
         out.append(f"-> {' '.join(sec['refs'])}")
+    # A hand-written `then` already says what to do next, and says it better - it
+    # names which result leads to the tail paragraph. Only sections without one
+    # need to be told the command.
     if sec.get("then"):
         out.append(f"-> then: {sec['then']}")
+    else:
+        roll = how_to_roll(sec, table)
+        if roll:
+            out.append(roll)
     return "\n".join(out)
 
 
@@ -581,7 +607,7 @@ def emit(sec: dict, note: str | None = None, raw: bool = False,
     if raw:
         print(fmt(sec, note))
     else:
-        print(aside(sec, note), file=sys.stderr)
+        print(aside(sec, note, table), file=sys.stderr)
         sys.stderr.flush()
         print(to_prose(sec, table))
         sys.stdout.flush()
@@ -1129,6 +1155,9 @@ def cmd_resolve(book: Book, args) -> int:
         print(f"\n-> that is {own['subid']}, this section's own tail paragraph. "
               f"Read it in full: bp show {sid}#{own['part']}", file=sys.stderr)
         return 0
+    hint = wealth_hint(book, text)
+    if hint:
+        print(hint, file=sys.stderr)
     if not dest:
         return 0
     target, tnote = book.resolve(dest.group(1))
@@ -1143,6 +1172,30 @@ def cmd_resolve(book: Book, args) -> int:
     print()
     emit(nxt, tnote, counts=counts, table=book.table(nxt["id"]))
     return 0
+
+
+def wealth_hint(book: Book, text: str) -> str | None:
+    """"wealth 25" is a line of the r226 grid, not 25 gold to write down.
+
+    Half of e139's rows send the reader to an event and half name a wealth code,
+    and nothing said so: `resolve e139 1` printed "wealth 25" and stopped. A run
+    of it had the narrator decide the whole event belonged to the treasure table
+    and call `bp treasure e139`, which is how "the treasure table does not have an
+    entry for e139" reached a player. The code is only worth naming if r226 really
+    prints that line, so it is looked up rather than assumed.
+    """
+    m = re.search(r"\bwealth\s+(\d+)\b", text, re.I)
+    if not m:
+        return None
+    try:
+        rows = procedures.treasure_rows(book)
+    except Exception:
+        return None
+    code = m.group(1)
+    if code not in rows:
+        return None
+    return (f"-> wealth {code} means r226's line {code}, not {code} gold. "
+            f"Roll for it: bp treasure {code} <die>")
 
 
 def cmd_roll(book: Book, args) -> int:

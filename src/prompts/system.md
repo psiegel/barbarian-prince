@@ -43,8 +43,9 @@ roll, that is a new stop.
 - `["day", "<hex>"]` — the actions available today and the dusk checks
 - `["move", "<from>", "<to>"]` — the ordered travel checks for one hex
 - `["options", "<id>"]` — the choices and dice for a section, without outcomes
-- `["resolve", "<id>", "<choice>", "<roll>"]` — apply a choice and roll
-- `["travel", "<terrain>", "<die>"]`, `["treasure", "<code>", "<die>"]`
+- `["resolve", "<id>", "<roll>"]` — roll a section's table; put a choice before
+  the roll only if it has one
+- `["travel", "<terrain>", "<die>"]`, `["treasure", "<wealth code>", "<die>"]`
 - `["show", "<id>"]` — a section; `["search", "<words>"]` when you don't know it
 - `["encounter"]` — how many of them there are, once it has been read out
 
