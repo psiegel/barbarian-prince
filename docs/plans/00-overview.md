@@ -170,7 +170,7 @@ individual plans.
 |---|---|---|---|
 | 01 | [Engine core](01-engine-core.md) — protocol, journal, replay, terminal UI | — | ☑ **done** — 64 tests, `./play2` |
 | 02 | [Encounter graph](02-encounter-graph.md) — r300–r343 | 01 | ☑ **done** — 112 tests |
-| 03 | [Combat](03-combat.md) — r220, r343, r218 | 01, 02 | ☐ not started |
+| 03 | [Combat](03-combat.md) — r220, r343, r218 | 01, 02 | ☑ **done** — 151 tests |
 | 04 | [Travel](04-travel.md) — r204, r205, r207 | 01, 02 | ☐ not started |
 | 05 | [Daily loop](05-daily-loop.md) — r203, r215–r217, r222 | 01, 04 | ☐ not started |
 | 06 | [Deferred effects](06-deferred-effects.md) — the pending queue | 05 | ☐ not started |

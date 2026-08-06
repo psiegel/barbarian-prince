@@ -62,6 +62,7 @@ def main() -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--game", help="which save (default: $BP_GAME, then current)")
     p.add_argument("--flow", help="start this flow, discarding any partial day")
+    p.add_argument("--sid", help="with --flow encounter: the section to resolve")
     p.add_argument("--auto-dice", action="store_true",
                    help="roll for the player instead of asking")
     p.add_argument("--quiet", action="store_true",
@@ -83,7 +84,7 @@ def main() -> int:
         m = Machine(g, book)
         if args.flow or not m.eng.get("cursor"):
             flow = args.flow or "demo"
-            m.start(flow)
+            m.start(flow, **({"sid": args.sid} if args.sid else {}))
         return term.run(m, auto_dice=args.auto_dice, quiet=args.quiet)
     except state.Refuse as e:
         print(e, file=sys.stderr)

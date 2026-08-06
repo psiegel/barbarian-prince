@@ -62,7 +62,7 @@ class TestReplayIsByteIdentical(unittest.TestCase):
         import json
         with harness.temp_game("determ-twice") as g:
             m = harness.machine(g)
-            harness.play(m, ["fight", 5, True, "Cal", 3], flow="demo")
+            harness.play(m, ["fight", 5, True, "Cal Arath", 3], flow="demo")
             first = json.dumps(harness.sheet_of(m.g), sort_keys=True)
             m.resume()
             second = json.dumps(harness.sheet_of(m.g), sort_keys=True)

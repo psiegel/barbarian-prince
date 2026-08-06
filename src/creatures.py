@@ -86,16 +86,23 @@ def lowest(spec: dict) -> int:
     return max(n, spec.get("min", n))
 
 
-def size(spec: dict) -> tuple[int, str]:
-    """Roll one band size. Returns the count and how it was arrived at."""
-    dice = [random.randint(1, 6) for _ in range(spec.get("dice", 1))]
-    n = sum(dice)
+def size_from(spec: dict, total: int) -> int:
+    """A band size from a dice total. The arithmetic, with no dice in it, so
+    that a player who rolls their own gets the same number as `bp` does."""
+    n = total
     if spec.get("div"):
         n = -(-n // spec["div"])          # round up, without importing math
     n += spec.get("add", 0)
     if spec.get("min") is not None:
         n = max(n, spec["min"])
-    return n, f"{describe(spec)} [{' + '.join(map(str, dice))}]"
+    return n
+
+
+def size(spec: dict) -> tuple[int, str]:
+    """Roll one band size. Returns the count and how it was arrived at."""
+    dice = [random.randint(1, 6) for _ in range(spec.get("dice", 1))]
+    return size_from(spec, sum(dice)), \
+        f"{describe(spec)} [{' + '.join(map(str, dice))}]"
 
 
 def head_count(expr, n: int) -> int:

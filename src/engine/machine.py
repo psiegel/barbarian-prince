@@ -19,7 +19,8 @@ import state
 
 from . import sections
 from .ctx import Ctx
-from .types import Ask, EndEvent, Event, Goto, Invoke, Outcome, Retry
+from .types import (Ask, EndEvent, Event, Goto, Invoke, Outcome, Retry,
+                    validate)
 
 Refuse = state.Refuse
 
@@ -178,6 +179,10 @@ class Machine:
     def answer(self, value) -> Turn:
         if self.ask is None:
             raise Refuse("nothing is waiting on an answer")
+        try:
+            validate(self.ask, value)
+        except ValueError as e:
+            raise Refuse(str(e)) from None
         self.eng["journal"].append({"kind": self.ask.kind, "value": value})
         # In place: the running handlers hold a reference to this list.
         self.out.clear()

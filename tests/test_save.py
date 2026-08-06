@@ -64,7 +64,7 @@ class TestInteroperability(unittest.TestCase):
     def test_bp_still_reads_a_save_the_engine_has_written(self):
         with harness.temp_game("save-interop") as g:
             m = harness.machine(g)
-            harness.play(m, ["fight", 5, True, "Cal", 3], flow="demo")
+            harness.play(m, ["fight", 5, True, "Cal Arath", 3], flow="demo")
             back = harness.reload(g["name"])
             # The sheet renders, which is what every bp command depends on.
             self.assertIn("Cal Arath", state.sheet(back))
@@ -80,12 +80,12 @@ class TestInteroperability(unittest.TestCase):
     def test_the_journal_holds_only_player_answers(self):
         with harness.temp_game("save-journal") as g:
             m = harness.machine(g)
-            harness.play(m, ["fight", 5, True, "Cal", 3], flow="demo")
+            harness.play(m, ["fight", 5, True, "Cal Arath", 3], flow="demo")
             journal = harness.reload(g["name"])["engine"]["journal"]
             self.assertEqual([e["kind"] for e in journal],
                              ["choice", "die", "confirm", "pick_char", "die"])
             self.assertEqual([e["value"] for e in journal],
-                             ["fight", 5, True, "Cal", 3])
+                             ["fight", 5, True, "Cal Arath", 3])
 
 
 class TestHygiene(unittest.TestCase):

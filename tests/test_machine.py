@@ -13,7 +13,7 @@ from engine.sections import REGISTRY, section
 from engine.types import Ask
 from state import Refuse
 
-ANSWERS = ["fight", 5, True, "Cal", 3]
+ANSWERS = ["fight", 5, True, "Cal Arath", 3]
 
 
 class TestDriving(unittest.TestCase):

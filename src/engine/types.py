@@ -41,6 +41,42 @@ class Ask:
     why: str | None = None      # rule cite; shown, never spoken
 
 
+def validate(ask: "Ask", value):
+    """Check an answer against what was asked, before it reaches a handler.
+
+    The terminal parses text and cannot produce a bad value, but a test driver,
+    a replayed journal or a future front end all can - and a string arriving
+    where a 2d6 total belongs surfaces as arithmetic failing three frames deep.
+    Raised as ValueError; the machine turns it into a Refuse.
+    """
+    spec = ask.spec or {}
+    kind = ask.kind
+
+    if kind in ("die", "number"):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"{ask.prompt!r} wants a number, got {value!r}")
+        low, high = spec.get("min"), spec.get("max")
+        if low is not None and value < low:
+            raise ValueError(f"{value} is below {low} for {ask.prompt!r}")
+        if high is not None and value > high:
+            raise ValueError(f"{value} is above {high} for {ask.prompt!r}")
+    elif kind == "confirm":
+        if not isinstance(value, bool):
+            raise ValueError(f"{ask.prompt!r} wants yes or no, got {value!r}")
+    elif kind == "choice":
+        if value not in (spec.get("options") or []):
+            raise ValueError(f"{value!r} is not one of "
+                             f"{spec.get('options')} for {ask.prompt!r}")
+    elif kind == "pick_char":
+        if value not in (spec.get("names") or []):
+            raise ValueError(f"{value!r} is not one of "
+                             f"{spec.get('names')} for {ask.prompt!r}")
+    elif kind == "hex":
+        if not (isinstance(value, str) and len(value) == 4 and value.isdigit()):
+            raise ValueError(f"{value!r} is not a hex id")
+    return value
+
+
 @dataclass(frozen=True)
 class Invoke:
     """Yielded, not returned: run another section as a sub-flow and send its

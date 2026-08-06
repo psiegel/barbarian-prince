@@ -63,21 +63,34 @@ def rout_immune(f: dict) -> bool:
 # --- one strike -----------------------------------------------------------
 
 
-def strike(striker: dict, target: dict, rng: random.Random) -> dict:
-    """Resolve one strike (r220c) without applying it."""
+def resolve_strike(striker: dict, target: dict, roll: int,
+                   dice: list[int] | None = None) -> dict:
+    """Resolve one strike (r220c) from a 2d6 total, without applying it.
+
+    The total is passed in rather than rolled so that the same arithmetic serves
+    both a fight the engine runs - where the player rolls and types the number -
+    and `bp fight auto`, which rolls its own. `dice` is only for display, and is
+    absent when all that came back was a total.
+    """
     skill = state.effective_cs(striker) - state.effective_cs(target)
-    dice = [rng.randint(1, 6), rng.randint(1, 6)]
     hurt = state.strike_mod(striker)
     exposed = state.target_mod(target)
-    total = skill + sum(dice) + hurt + exposed
-    return {"skill": skill, "dice": dice, "hurt": hurt, "exposed": exposed,
-            "total": total, "wounds": state.wounds_for(total)}
+    total = skill + roll + hurt + exposed
+    return {"skill": skill, "roll": roll, "dice": dice, "hurt": hurt,
+            "exposed": exposed, "total": total,
+            "wounds": state.wounds_for(total)}
+
+
+def strike(striker: dict, target: dict, rng: random.Random) -> dict:
+    dice = [rng.randint(1, 6), rng.randint(1, 6)]
+    return resolve_strike(striker, target, sum(dice), dice)
 
 
 def arithmetic(s: dict) -> str:
     """The strike, shown, so a player who wants to check it can."""
-    parts = [f"2d6 {sum(s['dice'])} [{'+'.join(str(d) for d in s['dice'])}]",
-             f"skill {s['skill']:+d}"]
+    shown = (f"2d6 {s['roll']} [{'+'.join(str(d) for d in s['dice'])}]"
+             if s.get("dice") else f"2d6 {s['roll']}")
+    parts = [shown, f"skill {s['skill']:+d}"]
     if s["hurt"]:
         parts.append(f"{s['hurt']:+d} own wounds")
     if s["exposed"]:
@@ -143,11 +156,19 @@ def strike_phase(strikers: list[dict], targets: list[dict],
     return killed
 
 
-def rout_check(g: dict, killed: list[dict], rng: random.Random,
-               log: list[str]) -> list[dict]:
-    """r220f: one die per enemy killed this round. A 6 and the rest flee."""
+def rout_liable(g: dict) -> tuple[list[dict], list[dict]]:
+    """Who is left, and which of them can be frightened at all (r220f)."""
     survivors = [f for f in g["foes"] if in_fight(f)]
-    liable = [f for f in survivors if not rout_immune(f)]
+    return survivors, [f for f in survivors if not rout_immune(f)]
+
+
+def rout_from(g: dict, dice: list[int], log: list[str]) -> list[dict]:
+    """r220f from dice already rolled - one per enemy killed this round.
+
+    Split from `rout_check` so the engine can ask the player for those dice
+    while `bp fight auto` goes on rolling its own, off one implementation.
+    """
+    survivors, liable = rout_liable(g)
     if not survivors:
         return []
     if not liable:
@@ -156,7 +177,6 @@ def rout_check(g: dict, killed: list[dict], rng: random.Random,
         log.append(f"  no rout check - {who} combat skill or endurance "
                    f"{ROUT_IMMUNE}+, so {fights} to the death (r220f).")
         return []
-    dice = [rng.randint(1, 6) for _ in killed]
     rolled = ", ".join(str(d) for d in dice)
     if 6 not in dice:
         log.append(f"  rout check, one die per kill: {rolled} - no 6, they stand "
@@ -172,11 +192,16 @@ def rout_check(g: dict, killed: list[dict], rng: random.Random,
     return liable
 
 
+def rout_check(g: dict, killed: list[dict], rng: random.Random,
+               log: list[str]) -> list[dict]:
+    return rout_from(g, [rng.randint(1, 6) for _ in killed], log)
+
+
 # --- the fight ------------------------------------------------------------
 
 
 def outcome(g: dict, rounds: int, routed: list[dict],
-            by_rout: bool = False) -> dict | None:
+            by_rout: bool = False, halt_on_prince_down: bool = True) -> dict | None:
     """The reason to stop, if there is one, checked after every strike phase.
 
     `by_rout` says a rout just emptied the field, which is not the same ending as
@@ -205,7 +230,10 @@ def outcome(g: dict, rounds: int, routed: list[dict],
     if not ours:
         return {"why": "wiped-out", "rounds": rounds, "routed": routed,
                 "result": "Your whole party has fallen. The enemy holds the field."}
-    if prince and state.unconscious(prince):
+    if halt_on_prince_down and prince and state.unconscious(prince):
+        # `bp fight auto` stops here for a ruling. The engine does not: r221b
+        # rolls for the followers' attitude and, if they stay, they fight on
+        # over him - which is how a game survives the Prince going down.
         return {"why": "prince-down", "rounds": rounds, "routed": routed,
                 "result": "The Prince is unconscious and helpless, combat skill 0 "
                           "(r221b) - the fight stops here for a ruling."}

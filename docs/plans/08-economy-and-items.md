@@ -60,7 +60,8 @@ starvation halving from r216b.
       `unconscious` and `serious` against r221 — they were written for the
       combat resolver and are now load-bearing everywhere.
 - [ ] Poison wounds: a `poison` count per character that r222 healing skips.
-      Plan 03 raises this; decide it in one place and implement it here.
+      **Plan 03 deliberately left this here** rather than adding a half-enforced
+      flag in the wound model — this plan owns wounds, so it owns poison.
 - [ ] Healing is one wound per character per full rest day, capped at original
       endurance, and suppressed by e120-style conditions (plan 06).
 

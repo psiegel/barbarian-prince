@@ -39,7 +39,7 @@ STATS = {
 }
 
 # What the calling section supplied and what the next one may still need.
-CARRIED = ("amount", "terms", "noun")
+CARRIED = ("amount", "terms", "noun", "event")
 
 
 def carried(ctx) -> dict:
@@ -126,6 +126,8 @@ def enter_combat(ctx, d: dict):
         "surprise": d.get("surprise"),
         "target": d.get("target", "party"),
         "from": ctx.sid,
+        # Which event led here: creatures.json keys band sizes by it.
+        "event": ctx.param("event"),
     }
     who = "your party" if spec["initiative"] == "us" else "the characters encountered"
     extra = ""
@@ -235,7 +237,11 @@ def do_join(ctx, jspec: dict, count: int | None = None):
         count = yield ctx.number(f"How many {noun}s join?", low=1, high=99,
                                  why=ctx.sid)
     cs = yield ctx.number("Their combat skill?", low=0, high=12, why=ctx.sid)
-    end = yield ctx.number("Their endurance?", low=0, high=12, why=ctx.sid)
+    # Endurance 1 or less is not a character the wound rules can describe:
+    # `end` of 0 is the sentinel for "stats not filled in", so r221 would treat
+    # such a follower as neither woundable nor killable. The lowest endurance
+    # the booklet prints is 2.
+    end = yield ctx.number("Their endurance?", low=2, high=20, why=ctx.sid)
 
     if pay and jspec.get("pay_starts") == "today":
         due = pay * count
@@ -472,7 +478,7 @@ def encounter_options(ctx):
             f"({cell!r}). The rule is in a footnote under the table - read it "
             f"with `python3 src/bp.py show {ctx.sid} --raw` and rule it by hand.")
 
-    params = {}
+    params = {"event": ctx.param("event") or ctx.sid}
     if ref.amount is not None:
         params["amount"] = ref.amount
     return ctx.goto(ref.sid, **params)
