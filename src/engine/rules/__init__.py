@@ -10,6 +10,6 @@ never carry a sentence of it in a string or a docstring - the repository ships n
 game content and `tests/test_no_game_text.py` (plan 09) checks that it stays true.
 """
 
-from . import combat, demo, graph  # noqa: F401
+from . import combat, demo, graph, travel  # noqa: F401
 
-__all__ = ["combat", "demo", "graph"]
+__all__ = ["combat", "demo", "graph", "travel"]

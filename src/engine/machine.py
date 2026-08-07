@@ -15,6 +15,7 @@ import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import procedures
 import state
 
 from . import sections
@@ -22,7 +23,7 @@ from .ctx import Ctx
 from .types import (Ask, EndEvent, Event, Goto, Invoke, Outcome, Retry,
                     validate)
 
-Refuse = state.Refuse
+Refuse = procedures.Refuse
 
 RULES_DIR = Path(__file__).resolve().parent / "rules"
 MAX_STEPS = 10_000       # a handler chain that never asks is a loop, not a game

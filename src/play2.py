@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 import bp                                       # noqa: E402
+import procedures                               # noqa: E402
 import state                                    # noqa: E402
 from engine import Machine                      # noqa: E402
 from ui import term                             # noqa: E402
@@ -86,7 +87,7 @@ def main() -> int:
             flow = args.flow or "demo"
             m.start(flow, **({"sid": args.sid} if args.sid else {}))
         return term.run(m, auto_dice=args.auto_dice, quiet=args.quiet)
-    except state.Refuse as e:
+    except procedures.Refuse as e:
         print(e, file=sys.stderr)
         return 1
 

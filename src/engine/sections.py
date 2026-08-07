@@ -5,11 +5,12 @@ generic one reads it and resolves it. A section whose outcome is written in
 prose gets a registered handler. `coverage.py` (plan 07) reports the gap.
 """
 
+import procedures
 import state
 
 from .types import EndEvent
 
-Refuse = state.Refuse
+Refuse = procedures.Refuse
 
 REGISTRY: dict[str, object] = {}
 

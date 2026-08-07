@@ -16,7 +16,7 @@ import state
 from .types import (Ask, EndDay, EndEvent, EndGame, EnterCombat, EscapeHex,
                     Event, Goto, HideHere, Invoke, Retry)
 
-Refuse = state.Refuse
+Refuse = procedures.Refuse
 
 
 class Ctx:
@@ -87,9 +87,14 @@ class Ctx:
     def ask_hex(self, prompt: str = "which hex?", why: str | None = None) -> Ask:
         return Ask("hex", prompt, {}, why)
 
-    def invoke(self, sid: str, **params) -> Invoke:
-        """Run a section as a sub-flow and get its Outcome back."""
-        return Invoke(sid, params)
+    def invoke(self, target: str, **params) -> Invoke:
+        """Run a section or flow as a sub-flow and get its Outcome back.
+
+        The parameter is `target`, not `sid`, so that a caller can pass a `sid`
+        of its own through to the flow being invoked - which is exactly what
+        running a travel event does: `ctx.invoke("encounter", sid=ref)`.
+        """
+        return Invoke(target, params)
 
     # --- emitting ---------------------------------------------------------
 

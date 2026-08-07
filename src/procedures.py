@@ -290,6 +290,42 @@ def threshold(spec: str) -> int | None:
 # --- dice checks ----------------------------------------------------------
 
 
+def lost_verdict(book, key: str, total: int,
+                 guide: bool = False) -> tuple[bool | None, int | None, int]:
+    """r205, as numbers: (lost, threshold, net). `lost` is None where the row
+    cannot get lost at all - the road, and rafting.
+
+    Split out of `check_lost` so the engine and the CLI decide off one
+    implementation and cannot drift apart on the guide's -1.
+    """
+    t = book.travel["terrain"][key]
+    thr = threshold(t["lost_on"])
+    net = total - 1 if guide else total
+    if thr is None:
+        return None, None, net
+    return net >= thr, thr, net
+
+
+def event_verdict(book, key: str, total: int) -> tuple[bool, int]:
+    """r204b, as numbers: (an event occurs, the threshold)."""
+    thr = threshold(book.travel["terrain"][key]["event_on"])
+    return total >= thr, thr
+
+
+def on_map(book, hid: str | None) -> bool:
+    """Whether a hex id is a hex that exists.
+
+    `fmt_hex` will format any coordinates, so a neighbour of an edge hex comes
+    back looking like an id when the board has no such hex. Only the map knows.
+    """
+    if not hid:
+        return False
+    if not book.map:
+        raise Refuse("the map is not loaded, so which hexes exist cannot be "
+                     "checked. Build it with `python3 src/extract_map.py`.")
+    return hid in book.map["hexes"]
+
+
 def check_lost(book, key: str, total: int, guide: bool = False) -> str:
     """r205: 2d6 against the Lost column for the terrain, guide applies -1 (r205a)."""
     t = book.travel["terrain"][key]
@@ -298,10 +334,9 @@ def check_lost(book, key: str, total: int, guide: bool = False) -> str:
     if thr is None:
         return (f"{t['name']}: lost on {t['lost_on']} - you cannot get lost here "
                 f"(r205b). No roll needed.")
-    net = total - 1 if guide else total
+    lost, thr, net = lost_verdict(book, key, total, guide)
     if guide:
         out.append(f"{total} - 1 for your guide (r205a) = {net}")
-    lost = net >= thr
     out.append(f"{t['name']}: needs {thr}+ to get lost, you have {net} -> "
                f"{'LOST' if lost else 'not lost'}")
     if lost and guide:
@@ -325,8 +360,7 @@ def check_lost(book, key: str, total: int, guide: bool = False) -> str:
 def check_event(book, key: str, total: int) -> str:
     """r204b: 2d6 against the Event column for the terrain entered."""
     t = book.travel["terrain"][key]
-    thr = threshold(t["event_on"])
-    happens = total >= thr
+    happens, thr = event_verdict(book, key, total)
     out = [f"{t['name']}: needs {thr}+ for an event, you have {total} -> "
            f"{'EVENT' if happens else 'no event'}"]
     if happens:

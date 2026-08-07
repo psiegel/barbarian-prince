@@ -12,9 +12,10 @@ by whoever sent you there.
 
 import re
 
+import procedures
 import state
 
-Refuse = state.Refuse
+Refuse = procedures.Refuse
 
 # A section id. No word boundary in front: pdftotext eats the space in front of
 # some cells ("hider318", "passr325") and the id is still an id. No space between

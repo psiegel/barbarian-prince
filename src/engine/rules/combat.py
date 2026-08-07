@@ -16,7 +16,7 @@ import state
 from ..sections import section
 from ..types import EnterCombat, EscapeHex, HideHere
 
-Refuse = state.Refuse
+Refuse = procedures.Refuse
 
 MAX_ROUNDS = combat.MAX_ROUNDS
 MAX_PICKS = 200        # r343 and r218 both loop on a die; neither may spin
@@ -391,22 +391,6 @@ def pick_victim(ctx, among: list[dict] | None = None):
                  f"hand.")
 
 
-def on_map(ctx, hid: str | None) -> bool:
-    """Whether a hex id is actually on the board.
-
-    `procedures.fmt_hex` will format any coordinates, so a neighbour of a corner
-    hex comes back looking like a hex id when there is no such hex. Without the
-    map loaded nothing can be checked, and a lookup refuses rather than guesses.
-    """
-    if not hid:
-        return False
-    if not ctx.book.map:
-        raise Refuse("the map is not loaded, so r218a cannot tell which "
-                     "directions leave the board. Build it with "
-                     "`python3 src/extract_map.py`, or rule this escape by hand.")
-    return hid in ctx.book.map["hexes"]
-
-
 def escape_hex(ctx):
     """r218a: away to a random adjacent hex - not across a river, not off the
     map, and not into the same refusal twice."""
@@ -422,7 +406,7 @@ def escape_hex(ctx):
         heading = procedures.DRIFT[die]
         there = procedures.neighbours(*procedures.parse_hex(here)).get(heading)
         tried.add(die)
-        if not on_map(ctx, there):
+        if not procedures.on_map(ctx.book, there):
             # `neighbours` formats an id for every direction, including ones
             # past the edge of the board - 0101's northern neighbour comes back
             # as "0100". Only the map says which of those are real.

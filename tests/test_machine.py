@@ -11,7 +11,7 @@ import harness
 from engine import EndEvent, machine as machine_mod
 from engine.sections import REGISTRY, section
 from engine.types import Ask
-from state import Refuse
+from procedures import Refuse
 
 ANSWERS = ["fight", 5, True, "Cal Arath", 3]
 

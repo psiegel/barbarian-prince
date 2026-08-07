@@ -100,54 +100,122 @@ A travel event normally consumes the rest of the day. Three exceptions:
 This means the travel flow cannot simply run the event and stop. It needs the
 event's outcome back:
 
-- [ ] Extend the `Outcome` verbs with a `time_cost`: `"rest_of_day"` (default),
-      `"minutes"`, `"none"`. `EndEvent(time_cost=...)`.
-- [ ] The graph's terminals set it: `Pass()` and the talk sections are
-      `"minutes"`; a won fight with no survivors is `"minutes"`; escape and hide
-      are `"rest_of_day"`.
-- [ ] After each hex, if movement remains and the day is not spent, offer to
+- [x] `EndEvent(time_cost=...)` — already landed in plan 01.
+- [x] The graph's terminals set it: `Pass()` and the talk sections are
+      `"minutes"`; a won fight is `"minutes"`; escape and hide are
+      `"rest_of_day"`. `travel.spends_day()` reads it.
+- [x] After each hex, if movement remains and the day is not spent, offer to
       continue.
 
 ## Work items
 
-- [ ] `src/engine/rules/travel.py` — `travel_action(ctx)`: ask destination and
-      speed, then `move_one_hex(ctx, a, b)` per hex following the order above.
-- [ ] Port `procedures.plan_move`'s ordering; keep `check_lost`/`check_event` as
-      the threshold authority so there is one implementation.
-- [ ] Guide desertion on a lost result — only one guide deserts, and only the one
-      chosen for the day. The party model needs a `guide` flag (it has one) and
-      the flow needs to ask which guide when there is more than one.
-- [ ] River-crossing state: a "crossed but lost" party ends in A with a note that
-      the far side is reachable tomorrow. Store it as a day flag on the save.
-- [ ] Road and airborne second-event rules.
-- [ ] Airborne drift.
-- [ ] Refuse on the hexes the map cannot answer for: `edge_conflicts` in
-      `map.json`, the terrain-straddling hexes, and `1720`. `bp hex` already
-      refuses on these — reuse that judgement, do not re-derive it.
+- [x] `src/engine/rules/travel.py` — `travel_action(ctx)`, with `overland`,
+      `by_road`, `over_river` and `fly` behind `move_one_hex`.
+- [x] Port `plan_move`'s ordering. The thresholds stayed in `procedures.py`:
+      `lost_verdict` and `event_verdict` were split out as the numbers, and
+      `check_lost`/`check_event` now print what those decide, so the CLI and the
+      engine cannot drift. A test drives every row at every total through both.
+- [x] Guide desertion — asked for by name when there is more than one, `-1`
+      applied, the desertion roll only on a lost result, and only one leaves.
+- [x] River-crossing state: `day_flags["across_river"]` holds the far hex.
+- [x] Road and airborne second-event rules.
+- [x] Airborne drift, including a drift that would leave the map.
+- [x] Refuse on what the map cannot answer: the seven straddle hexes and any
+      hexside the transcription contradicts itself about, both through
+      `procedures`. **`1720` is no longer one of them** — the map data now gives
+      it countryside and the town of Lullwyn, so the note in this plan and in
+      CLAUDE.md is stale.
 
 ## Tests
 
-- **Ordering:** a golden journal per shape — plain move, road move, river
-  crossing, airborne move, lost with a guide, lost without.
-- **Terrain sourcing:** assert lost reads the *from* hex and events the *to* hex.
-  This is the single most likely bug; test it directly rather than through a
-  scenario.
-- **Thresholds:** every row of `travel.json` triggers at its stated number and not
-  at one less.
-- **Guide:** −1 applied; desertion roll only on a lost result; only one guide
-  leaves.
-- **Speed gating:** a party with one man on foot is never offered two hexes.
-- **Refusal:** moving into `1720` refuses rather than guessing.
-- **Map invariants** (regression, from CLAUDE.md): `bp hex 0101` is north of the
-  Tragoth, `0102` is south. Assert through `procedures.north_of_tragoth` so a
-  re-transcribed map is caught here too.
+`tests/test_travel.py`, 49 tests. Suite total 215, about 37 seconds.
 
-## Open questions
+- [x] **Ordering:** one per shape — plain, road, river, airborne, lost with a
+      guide and without.
+- [x] **Terrain sourcing:** asserted head on, with a fixture picked so both
+      columns differ. `0104` countryside (lost 9+, event 9+) into `0204` hills
+      (lost 8+, event 10+): a lost roll of 8 must *not* be lost, and an event
+      roll of 9 must *not* fire. Either mistake flips exactly one of them.
+- [x] **Thresholds:** every row triggers at its number and not one below, in
+      both columns, and `check_lost`'s prose agrees with `lost_verdict` for
+      every row × every total × guide or not.
+- [x] **Guide:** all four properties.
+- [x] **Speed gating:** on foot is never offered two hexes, and one man on foot
+      keeps a part-mounted party walking.
+- [x] **Refusal:** a straddle hex refuses; it is still *offered* as "terrain
+      unclear" rather than hidden, so the player can see why.
+- [x] **Map invariants:** `0101` north of the Tragoth, `0102` south, and `1401`
+      south despite being in row 01.
 
-- **Does the player pick the route, or the destination?** Picking a destination
-  and pathfinding is friendlier but hides the hex-by-hex decisions the game is
-  made of, and getting lost invalidates a route anyway. Recommended: ask for the
-  next hex, each hex, offering the six neighbours with their terrain.
-- **Raft travel (r213)** only arises from special events. Defer to plan 07, but
-  leave the "no lost check" branch in place for it now — `travel.json` already
-  carries the eleven-row raft table.
+## Open questions, decided
+
+- **Route or destination?** The next hex, each hex, offered as the six
+  neighbours labelled with their terrain — `NE 0203 (forest)`. Off-map
+  neighbours are dropped; a straddle hex is offered as "terrain unclear" so it
+  is visible rather than silently missing.
+- **Raft travel (r213)** left to plan 07 as planned. `lost_verdict` already
+  returns `None` for a row that cannot get lost, which is the branch it needs.
+
+---
+
+## As built
+
+Landed. 215 tests. `./play2 --flow travel` walks the map with every check in
+order and no model in it.
+
+### Two bugs worth recording
+
+**`ctx.invoke(sid, **params)` could not pass a `sid` through.** Running a travel
+event is `ctx.invoke("encounter", sid=ref)`, and the positional argument was
+also called `sid`, so Python saw two values for one parameter. Renamed to
+`target`. A small thing that only shows up when one flow invokes another and
+wants to name a section — which is exactly what plan 05 will do all day.
+
+**`state.Refuse` subclasses `procedures.Refuse`, so catching the subclass missed
+the parent.** `hex_terrain` and `hexside` both raise the base class, and the
+engine aliased `Refuse = state.Refuse` everywhere — including `play2`, which
+would have shown a traceback instead of a clean message the first time a player
+walked toward a straddle hex. Everything now aliases `procedures.Refuse`, which
+catches both. Worth remembering: the raise site and the catch site have to agree
+about which end of a hierarchy they name.
+
+### The airborne landing check moved out of the hex loop
+
+r204d puts the terrain check on the *last* hex of the day, and the last hex is
+not known while the loop is running — the player may break the flight off early.
+It is now done once, after the loop, off `trip["aloft_event"]`, and it reads the
+hex the party is actually *in*, which after a drift is not the one it aimed at.
+
+### The lost/event asymmetry, and its exception
+
+Stated at the top of `travel.py` because it is the thing most likely to go
+silently wrong:
+
+```
+lost  uses the terrain you LEAVE       (r205)
+event uses the terrain you ENTER       (r204b)
+```
+
+with one printed exception — after crossing a river, the second lost check uses
+the terrain being *entered* (r205d). Both readings are the booklet's own;
+`data/procedures.json` has recorded the conflict under `lost_terrain_conflict`
+since before this plan. The test fixture is chosen so that getting either one
+backwards flips a result.
+
+### One implementation of the thresholds
+
+`check_lost` and `check_event` returned prose for the CLI. Rather than parse it
+or write a second copy, `lost_verdict` and `event_verdict` were split out as the
+numbers and the prose functions now print what they decide. A test drives every
+row at every total, with and without a guide, and asserts the two agree — so
+`bp travel` and `play2` cannot diverge on a threshold.
+
+### Deferred
+
+- **Raft travel (r213)**, as planned — plan 07.
+- **`day_flags["across_river"]`** is recorded but nothing reads it yet. Plan 05
+  owns tomorrow, and the rule is that the party may then enter any hex on the
+  far side.
+- **The road's optional second check** is offered as a question when a road
+  event occurred and left the day alive. r204c makes it optional and the engine
+  does not force it.

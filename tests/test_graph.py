@@ -13,7 +13,7 @@ from engine import EndEvent, EndGame, EnterCombat, EscapeHex, HideHere
 from engine.machine import Machine
 from engine.refs import Ref, parse_ref, resolve_ref, sweep
 from engine.rules.graph import GRAPH, expand
-from state import Refuse
+from procedures import Refuse
 
 TERMINALS = (EndEvent, EnterCombat, EscapeHex, HideHere, EndGame)
 

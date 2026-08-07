@@ -14,12 +14,13 @@ outcome rather than the section.
 import json
 from pathlib import Path
 
+import procedures
 import state
 
 from ..refs import resolve_ref
 from ..sections import section
 
-Refuse = state.Refuse
+Refuse = procedures.Refuse
 
 GRAPH = json.loads(
     (Path(__file__).resolve().parents[3] / "data" / "graph.json").read_text()

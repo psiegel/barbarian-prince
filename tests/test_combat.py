@@ -15,7 +15,7 @@ import procedures        # noqa: E402
 import state             # noqa: E402
 from engine import EndEvent, EndGame, Machine        # noqa: E402
 from engine.rules import combat as rules_combat      # noqa: E402
-from state import Refuse                             # noqa: E402
+from procedures import Refuse                             # noqa: E402
 
 
 def fighter(name, cs, end, wounds=0, kind="player", wits=4):
