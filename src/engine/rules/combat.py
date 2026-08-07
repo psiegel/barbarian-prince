@@ -237,6 +237,9 @@ def battle(ctx, spec: dict):
         raise Refuse("nobody in the party is able to strike; there is no fight "
                      "to roll out here")
 
+    # r222: a day with a fight in it heals nobody.
+    ctx.g.setdefault("day_flags", {})["fought"] = True
+
     rout = False
     if any(not combat.rout_immune(f) for f in living_foes(ctx)):
         rout = yield ctx.confirm(
@@ -416,6 +419,7 @@ def escape_hex(ctx):
         else:
             ctx.move_to(there, why="escaped (r218a)")
             ctx.g.setdefault("day_flags", {})["no_entry_event"] = there
+            ctx.g["day_flags"]["escaped"] = True
             ctx.note("no travel event for entering it, and the day still ends "
                      "with the meal", cite="r218a")
             return ctx.end_event(time_cost="rest_of_day")

@@ -32,11 +32,10 @@ def new_game(args) -> dict:
     if path.exists() and not args.force:
         raise state.Refuse(f"{path.relative_to(ROOT)} already exists - pass "
                            f"--force to start it over")
-    if args.wits is None:
-        raise state.Refuse("wit & wiles is missing: it is 1d6, a 1 counting as 2 "
-                           "(r202). Roll it and pass --wits.")
     prince = state.new_char("Cal Arath", "player")
-    prince.update(cs=8, end=9, wits=args.wits)   # r202
+    prince.update(cs=8, end=9)                   # r202, fixed
+    if args.wits is not None:
+        prince["wits"] = args.wits               # else the day flow rolls it
     g = {
         "version": state.VERSION,
         "name": state.slug(args.new),
@@ -51,8 +50,7 @@ def new_game(args) -> dict:
         "notes": [],
         "log": [],
     }
-    state.note(g, f"game started: Cal Arath cs 8 end 9 w&w {args.wits}, "
-                  f"{args.gold} gold, {args.food} food")
+    state.note(g, "new sheet: Cal Arath cs 8 end 9 (r202)")
     state.write_game(g)
     state.set_current(g["name"])
     return g
@@ -69,7 +67,8 @@ def main() -> int:
     p.add_argument("--quiet", action="store_true",
                    help="hide the referee's half - prose only")
     p.add_argument("--new", metavar="NAME", help="create a bare save first")
-    p.add_argument("--wits", type=int, help="with --new: wit & wiles (r202)")
+    p.add_argument("--wits", type=int,
+                   help="with --new: skip the r202 roll and use this")
     p.add_argument("--gold", type=int, default=0, help="with --new")
     p.add_argument("--food", type=int, default=0, help="with --new")
     p.add_argument("--hex", default=None, help="with --new: starting hex")
@@ -84,7 +83,7 @@ def main() -> int:
         book = bp.Book()
         m = Machine(g, book)
         if args.flow or not m.eng.get("cursor"):
-            flow = args.flow or "demo"
+            flow = args.flow or "day"
             m.start(flow, **({"sid": args.sid} if args.sid else {}))
         return term.run(m, auto_dice=args.auto_dice, quiet=args.quiet)
     except procedures.Refuse as e:

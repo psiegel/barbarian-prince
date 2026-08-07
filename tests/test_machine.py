@@ -311,3 +311,62 @@ class TestRefusals(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOutsideEdits(unittest.TestCase):
+    """Mid-day the sheet on disk is derived, not authoritative.
+
+    `resume` rebuilds it from dawn plus the journal, so an edit made with `bp`
+    in the middle of a day is discarded. That is correct - the journal is the
+    truth - but it must be said out loud.
+    """
+
+    def test_an_edit_mid_day_is_reported(self):
+        import state
+        with harness.temp_game("mach-outside") as g:
+            m = harness.machine(g)
+            m.start("demo")
+            m.answer("fight")
+            live = harness.reload(g["name"])
+            live["gold"] += 50                    # as if `bp gold +50` ran
+            state.write_game(live)
+            m2 = harness.machine(harness.reload(g["name"]))
+            turn = m2.resume()
+            self.assertTrue(any(e.kind == "warn" and "outside the engine" in e.text
+                                for e in turn.events))
+
+    def test_the_edit_is_discarded_not_kept(self):
+        import state
+        with harness.temp_game("mach-outside-drop") as g:
+            m = harness.machine(g)
+            m.start("demo")
+            m.answer("fight")
+            before = m.g["gold"]
+            live = harness.reload(g["name"])
+            live["gold"] += 50
+            state.write_game(live)
+            m2 = harness.machine(harness.reload(g["name"]))
+            m2.resume()
+            self.assertEqual(m2.g["gold"], before)
+
+    def test_no_warning_when_nothing_changed(self):
+        with harness.temp_game("mach-outside-quiet") as g:
+            m = harness.machine(g)
+            m.start("demo")
+            m.answer("fight")
+            m2 = harness.machine(harness.reload(g["name"]))
+            turn = m2.resume()
+            self.assertFalse(any(e.kind == "warn" for e in turn.events))
+
+    def test_an_edit_between_days_is_fine(self):
+        # With an empty journal the sheet *is* dawn, so `bp` is safe there.
+        import state
+        with harness.temp_game("mach-outside-dawn") as g:
+            harness.machine(g).start("demo")
+            live = harness.reload(g["name"])
+            live["engine"]["journal"] = []
+            live["gold"] = 999
+            state.write_game(live)
+            m2 = harness.machine(harness.reload(g["name"]))
+            self.assertFalse(m2.edited_outside)
+            self.assertEqual(m2.eng["day_start"]["gold"], 999)

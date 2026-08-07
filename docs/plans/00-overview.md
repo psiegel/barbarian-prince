@@ -172,14 +172,14 @@ individual plans.
 | 02 | [Encounter graph](02-encounter-graph.md) — r300–r343 | 01 | ☑ **done** — 112 tests |
 | 03 | [Combat](03-combat.md) — r220, r343, r218 | 01, 02 | ☑ **done** — 151 tests |
 | 04 | [Travel](04-travel.md) — r204, r205, r207 | 01, 02 | ☑ **done** — 215 tests |
-| 05 | [Daily loop](05-daily-loop.md) — r203, r215–r217, r222 | 01, 04 | ☐ not started |
+| 05 | [Daily loop](05-daily-loop.md) — r203, r215–r217, r222 | 01, 04 | ☑ **done** — 287 tests |
 | 06 | [Deferred effects](06-deferred-effects.md) — the pending queue | 05 | ☐ not started |
 | 07 | [Event sections](07-event-sections.md) — the 171 | 02–06 | ☐ not started |
 | 08 | [Economy and items](08-economy-and-items.md) — r206, r214, r225/r226, e180–e194 | 05 | ☐ not started |
 | 09 | [Testing](09-testing.md) — headless play, invariants, coverage | 01 (grows with each) | ☐ not started |
 | 10 | [Narration](10-narration.md) — the optional LLM layer | 05 | ☐ not started |
 
-A playable game exists after **05**. Plans 06–08 fill in the long tail; 09 runs
+A playable game exists after **05** — it does. Plans 06–08 fill in the long tail; 09 runs
 throughout; 10 is the reward.
 
 ## Glossary

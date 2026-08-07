@@ -12,6 +12,7 @@ Undo falls out of the same mechanism: drop the last answer and replay.
 
 import copy
 import hashlib
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,8 +21,8 @@ import state
 
 from . import sections
 from .ctx import Ctx
-from .types import (Ask, EndEvent, Event, Goto, Invoke, Outcome, Retry,
-                    validate)
+from .types import (Ask, EndDay, EndEvent, Event, Goto, Invoke, Outcome,
+                    Retry, validate)
 
 Refuse = procedures.Refuse
 
@@ -70,6 +71,13 @@ def rules_fingerprint() -> str:
     return h.hexdigest()[:16]
 
 
+def sheet_hash(g: dict) -> str:
+    """A fingerprint of the sheet, so an edit made outside the engine shows up."""
+    return hashlib.sha256(
+        json.dumps(snapshot(g), sort_keys=True, default=str).encode()
+    ).hexdigest()[:16]
+
+
 def snapshot(g: dict) -> dict:
     """The sheet, without the engine's own bookkeeping."""
     return copy.deepcopy({k: v for k, v in g.items() if k != "engine"})
@@ -110,6 +118,20 @@ class Machine:
         # save between days cannot leave day_start stale.
         if "day_start" not in eng or not eng["journal"]:
             eng["day_start"] = snapshot(g)
+            eng.pop("sheet_hash", None)
+        self.edited_outside = self._edited_outside()
+
+    def _edited_outside(self) -> bool:
+        """Did something change this save since the engine last wrote it?
+
+        Mid-day, the sheet on disk is a *derived* value: `resume` rebuilds it
+        from dawn plus the journal, so an edit made with `bp` in the middle of a
+        day is silently thrown away. That is the right behaviour - the journal
+        is the truth - but it must not be quiet, or a player who ran
+        `bp gold +50` watches it evaporate with no idea why.
+        """
+        was = self.eng.get("sheet_hash")
+        return bool(was) and was != sheet_hash(self.g)
 
     # --- lifecycle --------------------------------------------------------
 
@@ -168,6 +190,14 @@ class Machine:
             self.replaying = False
 
         self.ask = ask
+        if self.edited_outside:
+            self.edited_outside = False
+            self.out.insert(0, Event(
+                "warn",
+                "This save was changed outside the engine since the day began. "
+                "A day in progress is rebuilt from dawn plus its answers, so "
+                "that edit has been discarded. Finish or undo the day first, "
+                "then use `bp`.", voice=False))
         if stale:
             self.out.insert(0, Event(
                 "warn",
@@ -188,8 +218,30 @@ class Machine:
         # In place: the running handlers hold a reference to this list.
         self.out.clear()
         self.ask = self._drive(value)
+        self._roll_over()
         self.persist()
         return self._turn()
+
+    def _roll_over(self) -> None:
+        """A flow that ends the day commits and begins the next one.
+
+        D1 puts the durability boundary at dawn, and this is where it is: the
+        finished day becomes the new day_start, the journal is emptied, and the
+        same flow starts again. Nothing above the machine has to know that a day
+        ended, and a save is never left mid-boundary.
+        """
+        for _ in range(2):          # one roll-over per answer is enough
+            if self.ask is not None or not isinstance(self.result, EndDay):
+                return
+            cur = self.eng.get("cursor")
+            if not cur:
+                return
+            self.commit()
+            self.result = None
+            self.trace = []
+            self.stack = []
+            self._push(cur["flow"], params=cur.get("params") or {})
+            self.ask = self._drive(None)
 
     def undo(self) -> Turn | None:
         """Drop the last answer and replay. Returns None at dawn."""
@@ -207,6 +259,7 @@ class Machine:
         self.persist()
 
     def persist(self) -> None:
+        self.eng["sheet_hash"] = sheet_hash(self.g)
         if self.autosave:
             state.write_game(self.g)
 
